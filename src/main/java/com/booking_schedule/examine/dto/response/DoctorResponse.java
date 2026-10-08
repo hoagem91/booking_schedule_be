@@ -13,6 +13,7 @@ public class DoctorResponse {
     // Định danh Doctor
     private Long id;
     private String doctorCode;
+    private String status;
 
     // Thông tin từ User (Phẳng hóa)
     private Long userId;

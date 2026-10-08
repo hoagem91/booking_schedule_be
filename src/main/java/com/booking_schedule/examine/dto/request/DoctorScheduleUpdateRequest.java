@@ -2,6 +2,7 @@ package com.booking_schedule.examine.dto.request;
 
 import jakarta.validation.constraints.FutureOrPresent;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Positive;
 import lombok.*;
 
 import java.time.LocalDate;
@@ -13,6 +14,11 @@ import java.time.LocalTime;
 @AllArgsConstructor
 @Builder
 public class DoctorScheduleUpdateRequest {
+    // Optional assertion of the schedule's doctor; this field does not reassign the doctor.
+    @Positive(message = "doctorId phải lớn hơn 0")
+    private Long doctorId;
+
+    @Positive
     private Long roomId;
 
     @FutureOrPresent(message = "Ngày làm việc không được ở trong quá khứ")
@@ -24,5 +30,4 @@ public class DoctorScheduleUpdateRequest {
     @Min(value = 1, message = "Số lượng bệnh nhân tối đa phải lớn hơn 0")
     private Integer maxPatients;
 
-    private String status;
 }

@@ -1,5 +1,6 @@
 package com.booking_schedule.examine.entity;
 
+import com.booking_schedule.examine.enums.EGender;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -31,8 +32,9 @@ public class Patient {
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
-    @Column(name = "gender", length = 20)
-    private String gender;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gender", length = 50, nullable = false, unique = true)
+    private EGender gender;
 
     @Column(name = "address", length = 500)
     private String address;

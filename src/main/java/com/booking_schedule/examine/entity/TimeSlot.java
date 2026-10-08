@@ -1,6 +1,7 @@
 package com.booking_schedule.examine.entity;
 
 import jakarta.persistence.*;
+import com.booking_schedule.examine.enums.ETimeSlotStatus;
 import lombok.*;
 
 import java.time.LocalTime;
@@ -37,6 +38,12 @@ public class TimeSlot {
     private Integer bookedCount = 0;
 
     @Builder.Default
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 30)
-    private String status = "AVAILABLE";
+    private ETimeSlotStatus status = ETimeSlotStatus.AVAILABLE;
+
+    // Keep an individual admin closure when the parent schedule is reopened or resized.
+    @Builder.Default
+    @Column(name = "manually_closed", nullable = false, columnDefinition = "boolean default false")
+    private boolean manuallyClosed = false;
 }

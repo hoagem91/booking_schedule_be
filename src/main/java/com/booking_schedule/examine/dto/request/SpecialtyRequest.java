@@ -10,8 +10,7 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class SpecialtyRequest {
-
-    @NotBlank(message = "Mã chuyên khoa không được để trống")
+    // Không bắt buộc - Service tự sinh nếu không truyền (VD: CK-NHKHOA)
     @Size(max = 50, message = "Mã chuyên khoa không được vượt quá 50 ký tự")
     private String code;
 
@@ -20,7 +19,4 @@ public class SpecialtyRequest {
     private String name;
 
     private String description;
-
-    @Size(max = 30, message = "Trạng thái không được vượt quá 30 ký tự")
-    private String status;
 }

@@ -8,6 +8,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "appointments")
@@ -36,6 +37,18 @@ public class Appointment {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "service_id", nullable = false)
     private Service service;
+
+    // Giữ giá niêm yết tại thời điểm đặt lịch, độc lập với giá hiện tại của Service.
+    // Cho phép null cho dữ liệu cũ chưa có thông tin giá lịch sử.
+    @Column(name = "service_price", precision = 15, scale = 2, updatable = false)
+    private BigDecimal servicePrice;
+
+    @PrePersist
+    void captureServicePrice() {
+        if (service != null) {
+            servicePrice = service.getPrice();
+        }
+    }
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "time_slot_id", nullable = false)

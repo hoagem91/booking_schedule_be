@@ -30,7 +30,4 @@ public class CreateUserRequest {
 
     @Pattern(regexp = "^(0|\\+84)[0-9]{9}$", message = "Số điện thoại không đúng định dạng Việt Nam")
     private String phone;
-
-    private Set<String> roles;
-
 }

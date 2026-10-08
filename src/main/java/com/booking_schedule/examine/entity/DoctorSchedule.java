@@ -1,5 +1,6 @@
 package com.booking_schedule.examine.entity;
 
+import com.booking_schedule.examine.enums.EStatusDoctorSchedule;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -46,8 +47,9 @@ public class DoctorSchedule {
     private Integer maxPatients = 20;
 
     @Builder.Default
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 30)
-    private String status = "OPEN";
+    private EStatusDoctorSchedule status = EStatusDoctorSchedule.OPEN;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

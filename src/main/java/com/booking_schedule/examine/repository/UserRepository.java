@@ -13,4 +13,5 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // Rất hữu ích khi viết chức năng Đăng ký (Register)
     boolean existsByUsername(String username);
     boolean existsByEmail(String email);
+
 }

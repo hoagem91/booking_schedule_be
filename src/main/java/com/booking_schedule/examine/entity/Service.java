@@ -1,4 +1,5 @@
 package com.booking_schedule.examine.entity;
+import com.booking_schedule.examine.enums.EStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -42,8 +43,9 @@ public class Service {
     private String description;
 
     @Builder.Default
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 30)
-    private String status = "ACTIVE";
+    private EStatus status = EStatus.ACTIVE;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

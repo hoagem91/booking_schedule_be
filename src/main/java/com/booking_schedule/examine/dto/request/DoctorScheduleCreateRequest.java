@@ -1,14 +1,13 @@
 package com.booking_schedule.examine.dto.request;
 
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.FutureOrPresent;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import lombok.*;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.List;
 
 @Getter
 @Setter
@@ -17,9 +16,10 @@ import java.util.List;
 @Builder
 public class DoctorScheduleCreateRequest {
     @NotNull(message = "Bác sĩ (doctorId) không được để trống")
+    @Positive
     private Long doctorId;
 
-    @NotNull(message = "Phòng khám (roomId) không được để trống")
+    @Positive
     private Long roomId;
 
     @NotNull(message = "Ngày làm việc không được để trống")
@@ -35,9 +35,4 @@ public class DoctorScheduleCreateRequest {
     @Min(value = 1, message = "Số lượng bệnh nhân tối đa phải lớn hơn 0")
     private Integer maxPatients;
 
-    private String status; // OPEN, CLOSED, CANCELLED
-
-    // Danh sách khung giờ chi tiết (Có thể để null nếu bạn viết logic tự động sinh trong Service)
-    @Valid
-    private List<TimeSlotRequest> timeSlots;
 }
