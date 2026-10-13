@@ -15,6 +15,7 @@ import java.util.Set;
 @Builder
 public class UpdateUserRequest {
 
+    @Size(min = 6, max = 100)
     @Pattern(regexp = "^.*\\S.*$", message = "Mật khẩu không được chỉ chứa khoảng trắng")
     String password;
 

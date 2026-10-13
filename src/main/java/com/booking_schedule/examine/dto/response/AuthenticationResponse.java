@@ -14,4 +14,6 @@ public class AuthenticationResponse {
     String token;
     Date expiryTime;
     boolean authenticated;
+    Long userId;
+    Long patientId;
 }

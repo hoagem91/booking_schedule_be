@@ -16,5 +16,9 @@ public interface UserMapper {
     UserResponse toUserResponse(User user);
 
     @Mapping(target = "roles",ignore = true)
+    @Mapping(target = "password", ignore = true)
     void updateUser(@MappingTarget User user, UpdateUserRequest request);
+
+    @Mapping(target = "password", ignore = true)
+    void updateMyUser(@MappingTarget User user, com.booking_schedule.examine.dto.request.UpdateMyUserRequest request);
 }

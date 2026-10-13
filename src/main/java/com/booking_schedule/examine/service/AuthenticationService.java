@@ -42,6 +42,39 @@ public class AuthenticationService {
     UserRepository userRepository;
     PasswordEncoder passwordEncoder;
     InvalidatedTokenRepository invalidatedTokenRepository;
+    com.booking_schedule.examine.repository.PatientRepository patientRepository;
+    com.booking_schedule.examine.repository.RoleRepository roleRepository;
+
+    @org.springframework.transaction.annotation.Transactional
+    public AuthenticationResponse registerPatient(com.booking_schedule.examine.dto.request.RegisterRequest request) {
+        if (userRepository.existsByUsername(request.getUsername()) || userRepository.existsByEmail(request.getEmail())) {
+            throw new AppException(ErrorCode.USER_EXISTED);
+        }
+        var role = roleRepository.findByName(com.booking_schedule.examine.enums.ERole.PATIENT)
+                .orElseThrow(() -> new AppException(ErrorCode.INVALID_ROLE));
+        User user = User.builder().username(request.getUsername()).password(passwordEncoder.encode(request.getPassword()))
+                .fullName(request.getFullName()).email(request.getEmail()).phone(request.getPhone())
+                .roles(new java.util.HashSet<>(java.util.Set.of(role))).build();
+        try {
+            userRepository.saveAndFlush(user);
+        } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+            throw new AppException(ErrorCode.USER_EXISTED);
+        }
+        var patient = com.booking_schedule.examine.entity.Patient.builder().user(user)
+                .patientCode(ProfileCodeGenerator.generate("BN")).dateOfBirth(request.getDateOfBirth())
+                .gender(request.getGender()).address(request.getAddress())
+                .healthInsuranceCode(request.getHealthInsuranceCode()).build();
+        patientRepository.saveAndFlush(patient);
+        user.setPatient(patient);
+        return authenticationResponse(user);
+    }
+
+    private AuthenticationResponse authenticationResponse(User user) {
+        return AuthenticationResponse.builder().token(generateToken(user))
+                .expiryTime(new Date(Instant.now().plus(validDuration, ChronoUnit.SECONDS).toEpochMilli()))
+                .authenticated(true).userId(user.getId())
+                .patientId(user.getPatient() == null ? null : user.getPatient().getId()).build();
+    }
 
     @NonFinal
     @Value("${jwt.signerKey}")
@@ -56,6 +89,7 @@ public class AuthenticationService {
     long refreshableDuration;
 
     // ======================== LOGIN ========================
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public AuthenticationResponse authenticate(AuthenticationRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
@@ -64,18 +98,12 @@ public class AuthenticationService {
         if (!passwordMatched) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
-
-        String token = generateToken(user);
-        Date expiryTime = new Date(Instant.now().plus(validDuration, ChronoUnit.SECONDS).toEpochMilli());
-
-        return AuthenticationResponse.builder()
-                .token(token)
-                .expiryTime(expiryTime)
-                .authenticated(true)
-                .build();
+        if (!"ACTIVE".equals(user.getStatus())) throw new AppException(ErrorCode.USER_INACTIVE);
+        return authenticationResponse(user);
     }
 
     // ======================== INTROSPECT ========================
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public IntrospectResponse introspect(IntrospectRequest request) {
         String token = request.getToken();
         boolean valid = true;
@@ -111,13 +139,13 @@ public class AuthenticationService {
     }
 
     // ======================== REFRESH TOKEN ========================
+    @org.springframework.transaction.annotation.Transactional
     public AuthenticationResponse refreshToken(RefreshTokenRequest request) throws ParseException, JOSEException {
         // 1. Verify old token (allow expired, but check blacklist & signature)
         SignedJWT signedJWT = verifyToken(request.getToken(), true);
 
         String jwtId = signedJWT.getJWTClaimsSet().getJWTID();
         Date expiryTime = signedJWT.getJWTClaimsSet().getExpirationTime();
-        log.info("ExpiredTime: {}", expiryTime);
 
         // 2. Invalidate old token
         invalidatedTokenRepository.save(
@@ -133,15 +161,7 @@ public class AuthenticationService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
         // 4. Issue new token
-        String newToken = generateToken(user);
-        Date newExpiry = new Date(Instant.now().plus(validDuration, ChronoUnit.SECONDS).toEpochMilli());
-        log.info("ExpiredTimeNew: {}", newExpiry);
-
-        return AuthenticationResponse.builder()
-                .token(newToken)
-                .expiryTime(newExpiry)
-                .authenticated(true)
-                .build();
+        return authenticationResponse(user);
     }
 
     // ======================== INTERNAL: Generate JWT ========================
@@ -155,6 +175,9 @@ public class AuthenticationService {
                 .expirationTime(new Date(Instant.now().plus(validDuration, ChronoUnit.SECONDS).toEpochMilli()))
                 .jwtID(UUID.randomUUID().toString())
                 .claim("scope", buildScope(user))
+                .claim("userId", user.getId())
+                .claim("patientId", user.getPatient() == null ? null : user.getPatient().getId())
+                .claim("authVersion", user.getAuthVersion())
                 .build();
 
         Payload payload = new Payload(claimsSet.toJSONObject());
@@ -184,13 +207,24 @@ public class AuthenticationService {
 
         // Check expiry (unless allowExpired)
         Date expiryTime = signedJWT.getJWTClaimsSet().getExpirationTime();
-        if (!allowExpired && expiryTime.before(new Date())) {
+        Date issuedAt = signedJWT.getJWTClaimsSet().getIssueTime();
+        if (expiryTime == null || issuedAt == null
+                || (!allowExpired && !expiryTime.after(new Date()))
+                || (allowExpired && !issuedAt.toInstant().plus(refreshableDuration, ChronoUnit.SECONDS).isAfter(Instant.now()))) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
 
         // Check blacklist
         String jwtId = signedJWT.getJWTClaimsSet().getJWTID();
         if (invalidatedTokenRepository.existsById(jwtId)) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        User user = userRepository.findByUsername(signedJWT.getJWTClaimsSet().getSubject())
+                .orElseThrow(() -> new AppException(ErrorCode.UNAUTHENTICATED));
+        if (!"ACTIVE".equals(user.getStatus())
+                || !java.util.Objects.equals(user.getId(), signedJWT.getJWTClaimsSet().getLongClaim("userId"))
+                || !java.util.Objects.equals(user.getAuthVersion(), signedJWT.getJWTClaimsSet().getLongClaim("authVersion"))) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
 

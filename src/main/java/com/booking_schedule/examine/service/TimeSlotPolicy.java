@@ -16,6 +16,8 @@ public final class TimeSlotPolicy {
     public static boolean acceptingSchedule(DoctorSchedule schedule, LocalDateTime now) {
         return schedule.getStatus() == EStatusDoctorSchedule.OPEN
                 && schedule.getDoctor().getStatus() == EStatus.ACTIVE
+                && schedule.getDoctor().getUser() != null
+                && "ACTIVE".equals(schedule.getDoctor().getUser().getStatus())
                 && schedule.getDoctor().getSpecialty().getStatus() == EStatus.ACTIVE
                 && !schedule.getWorkDate().isBefore(now.toLocalDate());
     }

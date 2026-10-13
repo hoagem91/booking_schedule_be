@@ -12,11 +12,7 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 public class SecurityConfig {
     private static final String[] PUBLIC_ENDPOINTS = {
-           "/users/{userId}", "/users/registration", "/auth/token", "/auth/introspect", "/auth/logout", "/auth/refresh"
-    };
-
-    private static final String[] PUBLIC_GET_ENDPOINTS = {
-            "/users/{userId}"
+           "/users/registration", "/auth/register", "/auth/token", "/auth/introspect", "/auth/logout", "/auth/refresh"
     };
 
     private final CustomJwtDecoder customJwtDecoder;
@@ -28,6 +24,17 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity.authorizeHttpRequests(request -> request
+                .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
+                .requestMatchers("/users/me").authenticated()
+                .requestMatchers("/users", "/users/**", "/api/admin/doctors", "/api/admin/doctors/**")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
+                .requestMatchers(HttpMethod.POST, "/patients").hasAnyAuthority("SCOPE_PATIENT", "SCOPE_DOCTOR")
+                .requestMatchers("/patients/me").hasAuthority("SCOPE_PATIENT")
+                .requestMatchers("/patients", "/patients/**").hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
+                .requestMatchers("/api/admin/appointments", "/api/admin/appointments/**")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
+                .requestMatchers("/api/patient/appointments", "/api/patient/appointments/**")
+                .hasAuthority("SCOPE_PATIENT")
                 .requestMatchers("/api/admin/time-slots", "/api/admin/time-slots/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
                 .requestMatchers(HttpMethod.GET, "/api/public/time-slots", "/api/public/time-slots/**",
@@ -38,8 +45,6 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/services", "/api/admin/services/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/public/services", "/api/public/services/**").permitAll()
-                .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
-                .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                 .anyRequest()
                 .authenticated());
 

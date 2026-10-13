@@ -43,6 +43,10 @@ public class Appointment {
     @Column(name = "service_price", precision = 15, scale = 2, updatable = false)
     private BigDecimal servicePrice;
 
+    // Snapshot sau giảm giá; không tính lại từ Promotion/Service có thể đã thay đổi.
+    @Column(name = "final_amount", precision = 15, scale = 2, updatable = false)
+    private BigDecimal finalAmount;
+
     @PrePersist
     void captureServicePrice() {
         if (service != null) {

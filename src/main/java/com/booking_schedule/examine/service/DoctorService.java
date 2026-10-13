@@ -11,9 +11,8 @@ import com.booking_schedule.examine.enums.EStatus;
 import com.booking_schedule.examine.exception.AppException;
 import com.booking_schedule.examine.exception.ErrorCode;
 import com.booking_schedule.examine.mapper.DoctorMapper;
-import com.booking_schedule.examine.repository.AppointmentRepository;
 import com.booking_schedule.examine.repository.DoctorRepository;
-import com.booking_schedule.examine.repository.DoctorScheduleRepository;
+import com.booking_schedule.examine.repository.RoleRepository;
 import com.booking_schedule.examine.repository.SpecialtyRepository;
 import com.booking_schedule.examine.repository.UserRepository;
 import lombok.AccessLevel;
@@ -23,22 +22,20 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Slf4j
+@Transactional(readOnly = true)
 public class DoctorService {
 
     DoctorMapper doctorMapper;
     DoctorRepository doctorRepository;
     UserRepository userRepository;
     SpecialtyRepository specialtyRepository;
-    DoctorScheduleRepository doctorScheduleRepository;
-    AppointmentRepository appointmentRepository;
+    RoleRepository roleRepository;
 
     // ==================== CREATE ====================
 
@@ -46,24 +43,19 @@ public class DoctorService {
      * Luồng nghiệp vụ tạo hồ sơ bác sĩ (Admin thực hiện):
      * 1. Kiểm tra User tồn tại
      * 2. Kiểm tra User chưa có hồ sơ bác sĩ (UNIQUE user_id)
-     * 3. Kiểm tra User đã có role DOCTOR chưa
+     * 3. Gán DOCTOR cùng transaction với tạo hồ sơ; không cần gán role trước
      * 4. Kiểm tra Specialty tồn tại và đang ACTIVE
      * 5. Kiểm tra doctorCode unique (hoặc tự sinh nếu không truyền)
      * 6. Build + lưu + trả về response
      */
     @Transactional
     public DoctorResponse createDoctor(DoctorCreateRequest request) {
-        User user = userRepository.findById(request.getUserId())
+        User user = userRepository.findLockedById(request.getUserId())
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        if (!"ACTIVE".equals(user.getStatus())) throw new AppException(ErrorCode.USER_INACTIVE);
 
         if (doctorRepository.existsByUserId(user.getId())) {
             throw new AppException(ErrorCode.DOCTOR_ALREADY_EXISTS);
-        }
-
-        boolean isDoctor = user.getRoles().stream()
-                .anyMatch(role -> role.getName() == ERole.DOCTOR);
-        if (!isDoctor) {
-            throw new AppException(ErrorCode.USER_IS_NOT_DOCTOR);
         }
 
         Specialty specialty = specialtyRepository.findById(request.getSpecialtyId())
@@ -85,6 +77,10 @@ public class DoctorService {
                 .build();
 
         doctor = doctorRepository.save(doctor);
+        user.setDoctor(doctor);
+        user.getRoles().add(roleRepository.findByName(ERole.DOCTOR)
+                .orElseThrow(() -> new AppException(ErrorCode.INVALID_ROLE)));
+        user.revokeTokens();
         log.info("Created doctor profile for userId={}, doctorCode={}", user.getId(), doctorCode);
         return doctorMapper.toDoctorResponse(doctor);
     }
@@ -138,32 +134,16 @@ public class DoctorService {
     /**
      * Luồng nghiệp vụ xóa / vô hiệu hóa bác sĩ (Admin thực hiện):
      * <p>
-     * - Nếu bác sĩ ĐÃ có lịch làm việc (doctor_schedules) HOẶC lịch hẹn (appointments):
-     * → SOFT DELETE: cập nhật status = 'INACTIVE' (bảo toàn lịch sử)
-     * - Nếu bác sĩ CHƯA có bất kỳ lịch nào:
-     * → HARD DELETE: xóa hẳn bản ghi khỏi database
+     * Luôn vô hiệu hóa hồ sơ, giữ quan hệ với User và toàn bộ lịch sử.
      */
     @Transactional
     public String deleteDoctor(Long doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
+        Doctor doctor = doctorRepository.findLockedById(doctorId)
                 .orElseThrow(() -> new AppException(ErrorCode.DOCTOR_NOT_EXISTED));
 
-        boolean hasSchedules = doctorScheduleRepository.existsByDoctorId(doctorId);
-        boolean hasAppointments = appointmentRepository.existsByDoctorId(doctorId);
-
-        if (hasSchedules || hasAppointments) {
-            if (doctor.getStatus() == EStatus.INACTIVE) {
-                throw new AppException(ErrorCode.DOCTOR_ALREADY_INACTIVE);
-            }
-            doctor.setStatus(EStatus.INACTIVE);
-            doctorRepository.save(doctor);
-            log.info("Soft-deleted (INACTIVE) doctor doctorId={}", doctorId);
-            return "Bác sĩ đã được vô hiệu hóa (INACTIVE) do có lịch sử làm việc";
-        } else {
-            doctorRepository.delete(doctor);
-            log.info("Hard-deleted doctor doctorId={}", doctorId);
-            return "Bác sĩ đã được xóa vĩnh viễn";
-        }
+        doctor.setStatus(EStatus.INACTIVE);
+        doctorRepository.save(doctor);
+        return "Bác sĩ đã được vô hiệu hóa; hồ sơ và lịch sử được giữ lại";
     }
 
     /**
@@ -200,7 +180,7 @@ public class DoctorService {
 
     /**
      * Sinh mã bác sĩ tự động nếu client không truyền.
-     * Format: BS-YYYYMMDD-<5 chữ số cuối của millis>
+     * Format: BS-YYYYMMDD-<UUID không có dấu gạch ngang>
      */
     private String generateDoctorCode(String requestedCode) {
         if (requestedCode != null && !requestedCode.isBlank()) {
@@ -209,8 +189,6 @@ public class DoctorService {
             }
             return requestedCode;
         }
-        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        String suffix = String.valueOf(System.currentTimeMillis() % 100000);
-        return "BS-" + date + "-" + suffix;
+        return ProfileCodeGenerator.generate("BS");
     }
 }

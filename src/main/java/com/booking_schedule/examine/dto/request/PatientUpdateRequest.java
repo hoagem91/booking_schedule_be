@@ -3,7 +3,7 @@ package com.booking_schedule.examine.dto.request;
 import com.booking_schedule.examine.enums.EGender;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.*;
@@ -16,7 +16,7 @@ import java.time.LocalDate;
 @AllArgsConstructor
 @Builder
 public class PatientUpdateRequest {
-    @Past(message = "Ngày sinh phải là một ngày trong quá khứ")
+    @PastOrPresent(message = "Ngày sinh không được ở tương lai")
     private LocalDate dateOfBirth;
 
     private EGender gender;

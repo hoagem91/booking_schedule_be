@@ -23,7 +23,7 @@ public class Patient {
     private Long id;
 
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", referencedColumnName = "id", unique = true)
+    @JoinColumn(name = "user_id", referencedColumnName = "id", unique = true, nullable = false)
     private User user;
 
     @Column(name = "patient_code", length = 50, nullable = false, unique = true)
@@ -33,7 +33,7 @@ public class Patient {
     private LocalDate dateOfBirth;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "gender", length = 50, nullable = false, unique = true)
+    @Column(name = "gender", length = 50, nullable = false)
     private EGender gender;
 
     @Column(name = "address", length = 500)

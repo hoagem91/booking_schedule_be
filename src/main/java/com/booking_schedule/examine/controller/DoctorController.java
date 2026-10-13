@@ -26,7 +26,7 @@ public class DoctorController {
 
     /**
      * POST /api/admin/doctors
-     * Admin tạo hồ sơ bác sĩ cho một User đã có role DOCTOR.
+     * Admin tạo hồ sơ bác sĩ và gán role DOCTOR cùng transaction.
      * userId truyền qua body request (Admin chỉ định user nào).
      */
     @PostMapping
@@ -80,8 +80,7 @@ public class DoctorController {
     /**
      * DELETE /api/admin/doctors/{doctorId}
      * Xóa hồ sơ bác sĩ theo nghiệp vụ:
-     * - Nếu bác sĩ đã có lịch làm việc hoặc lịch hẹn → Soft Delete (INACTIVE)
-     * - Nếu bác sĩ chưa phát sinh dữ liệu lịch sử → Hard Delete (xóa hẳn)
+     * Luôn vô hiệu hóa (INACTIVE), giữ hồ sơ và lịch sử.
      */
     @DeleteMapping("/{doctorId}")
     public ApiResponse<String> deleteDoctor(@PathVariable Long doctorId) {

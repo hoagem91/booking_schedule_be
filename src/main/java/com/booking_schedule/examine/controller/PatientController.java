@@ -83,7 +83,7 @@ public class PatientController {
 
     /**
      * DELETE /patients/{userId}   (Admin)
-     * Admin xóa hồ sơ bệnh nhân theo userId.
+     * Endpoint cũ trả 409: hồ sơ được giữ lại; khóa User để ngừng tài khoản.
      */
     @DeleteMapping("/{userId}")
     public ApiResponse<String> deletePatient(@PathVariable Long userId) {

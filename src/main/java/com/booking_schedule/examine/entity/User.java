@@ -40,6 +40,14 @@ public class User {
     @Column(name = "status", length = 30, nullable = false)
     private String status = "ACTIVE";
 
+    @Builder.Default
+    @Column(name = "auth_version", nullable = false)
+    private Long authVersion = 0L;
+
+    public void revokeTokens() {
+        authVersion = (authVersion == null ? 0L : authVersion) + 1;
+    }
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -57,9 +65,9 @@ public class User {
     @Builder.Default
     private Set<Role> roles = new HashSet<>();
 
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToOne(mappedBy = "user", fetch = FetchType.LAZY)
     private Patient patient;
 
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToOne(mappedBy = "user", fetch = FetchType.LAZY)
     private Doctor doctor;
 }

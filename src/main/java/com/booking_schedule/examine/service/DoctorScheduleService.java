@@ -24,7 +24,7 @@ public class DoctorScheduleService {
     private final DoctorRepository doctors;
     private final RoomRepository rooms;
     private final AppointmentRepository appointments;
-    private final NotificationRepository notifications;
+    private final AppointmentLifecycle appointmentLifecycle;
     private final DoctorScheduleMapper mapper;
 
     @Transactional
@@ -131,6 +131,7 @@ public class DoctorScheduleService {
         Specification<DoctorSchedule> filter = filters(doctorId, specialtyId, fromDate, toDate, EStatusDoctorSchedule.OPEN);
         filter = filter.and((root, query, cb) -> cb.and(cb.greaterThanOrEqualTo(root.get("workDate"), today),
                 cb.equal(root.get("doctor").get("status"), EStatus.ACTIVE),
+                cb.equal(root.get("doctor").get("user").get("status"), "ACTIVE"),
                 cb.equal(root.get("doctor").get("specialty").get("status"), EStatus.ACTIVE)));
         LocalDateTime now = LocalDateTime.now();
         return schedules.findAll(filter, Sort.by("workDate", "startTime", "id")).stream()
@@ -228,13 +229,11 @@ public class DoctorScheduleService {
         schedule.setStatus(EStatusDoctorSchedule.CANCELLED);
         List<Appointment> active = appointments.findByTimeSlotDoctorScheduleIdAndStatusIn(schedule.getId(),
                 List.of(EAppointmentStatus.PENDING, EAppointmentStatus.CONFIRMED));
+        // Consistent promotion lock order when cancelling several appointments across schedules.
+        active.sort(Comparator.comparing((Appointment a) -> a.getPromotion() == null ? 0L : a.getPromotion().getId())
+                .thenComparing(Appointment::getId));
         for (Appointment appointment : active) {
-            notifications.save(Notification.builder().user(appointment.getPatient().getUser()).title("Ca khám đã bị hủy")
-                    .content("Ca khám ngày " + schedule.getWorkDate() + " đã bị hủy. Vui lòng liên hệ phòng khám để dời lịch " + appointment.getAppointmentCode() + ".")
-                    .type("APPOINTMENT_CANCELLED").referenceId(appointment.getId()).build());
-            appointment.setStatus(EAppointmentStatus.CANCELLED);
-            TimeSlot slot = appointment.getTimeSlot();
-            if (slot.getBookedCount() > 0) slot.setBookedCount(slot.getBookedCount() - 1);
+            appointmentLifecycle.cancel(appointment, "Ca khám đã bị hủy bởi phòng khám", true);
         }
         appointments.saveAll(active);
         // Appointment records preserve history; refunds remain the responsibility of payment.
@@ -266,6 +265,8 @@ public class DoctorScheduleService {
 
     private void requireActive(Doctor doctor) {
         if (doctor.getStatus() != EStatus.ACTIVE) throw new AppException(ErrorCode.DOCTOR_INACTIVE);
+        if (doctor.getUser() == null || !"ACTIVE".equals(doctor.getUser().getStatus()))
+            throw new AppException(ErrorCode.DOCTOR_INACTIVE);
     }
 
     private void validateTime(LocalDate date, LocalTime start, LocalTime end, int capacity) {

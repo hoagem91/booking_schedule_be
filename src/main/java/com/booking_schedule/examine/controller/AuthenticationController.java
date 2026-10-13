@@ -29,6 +29,12 @@ public class AuthenticationController {
 
     AuthenticationService authenticationService;
 
+    @PostMapping("/register")
+    public ApiResponse<AuthenticationResponse> registerPatient(
+            @RequestBody @jakarta.validation.Valid com.booking_schedule.examine.dto.request.RegisterRequest request) {
+        return ApiResponse.<AuthenticationResponse>builder().result(authenticationService.registerPatient(request)).build();
+    }
+
     /**
      * POST /auth/token
      * Đăng nhập và nhận về JWT Access Token

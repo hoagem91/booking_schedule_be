@@ -10,6 +10,7 @@ import com.booking_schedule.examine.exception.AppException;
 import com.booking_schedule.examine.exception.ErrorCode;
 import com.booking_schedule.examine.mapper.PatientMapper;
 import com.booking_schedule.examine.repository.PatientRepository;
+import com.booking_schedule.examine.repository.RoleRepository;
 import com.booking_schedule.examine.repository.UserRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +20,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -28,11 +27,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Slf4j
+@Transactional(readOnly = true)
 public class PatientService {
 
     UserRepository userRepository;
     PatientRepository patientRepository;
     PatientMapper patientMapper;
+    RoleRepository roleRepository;
 
     /**
      * Tạo hồ sơ bệnh nhân cho người dùng đang đăng nhập.
@@ -41,8 +42,8 @@ public class PatientService {
      * 1. Lấy username từ SecurityContext (JWT đã được xác thực bởi Spring Security)
      * 2. Query user từ DB theo username đó
      * 3. Kiểm tra user đã có hồ sơ bệnh nhân chưa (1 user - 1 patient)
-     * 4. Kiểm tra user có role PATIENT không
-     * 5. Build entity Patient, set quan hệ user, tự sinh patientCode nếu không truyền
+     * 4. Kiểm tra vai trò PATIENT (tài khoản cũ) hoặc DOCTOR (bác sĩ tự đăng ký khám)
+     * 5. Tự sinh mã, tạo hồ sơ, bổ sung PATIENT và thu hồi JWT cũ
      * 6. Lưu và trả về PatientResponse
      */
     @Transactional
@@ -50,13 +51,16 @@ public class PatientService {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User currentUser = userRepository.findByUsername(username)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        currentUser = userRepository.findLockedById(currentUser.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        if (!"ACTIVE".equals(currentUser.getStatus())) throw new AppException(ErrorCode.USER_INACTIVE);
 
         if (patientRepository.existsByUserId(currentUser.getId())) {
             throw new AppException(ErrorCode.PATIENT_ALREADY_EXISTS);
         }
 
         boolean isPatient = currentUser.getRoles().stream()
-                .anyMatch(role -> role.getName() == ERole.PATIENT);
+                .anyMatch(role -> role.getName() == ERole.PATIENT || role.getName() == ERole.DOCTOR);
         if (!isPatient) {
             throw new AppException(ErrorCode.USER_IS_NOT_PATIENT);
         }
@@ -67,10 +71,16 @@ public class PatientService {
                 .gender(request.getGender())
                 .address(request.getAddress())
                 .healthInsuranceCode(request.getHealthInsuranceCode())
-                .patientCode(generatePatientCode(request.getPatientCode()))
+                .patientCode(ProfileCodeGenerator.generate("BN"))
                 .build();
 
         Patient savedPatient = patientRepository.save(patient);
+        currentUser.setPatient(savedPatient);
+        if (currentUser.getRoles().stream().noneMatch(role -> role.getName() == ERole.PATIENT)) {
+            currentUser.getRoles().add(roleRepository.findByName(ERole.PATIENT)
+                    .orElseThrow(() -> new AppException(ErrorCode.INVALID_ROLE)));
+        }
+        currentUser.revokeTokens();
         log.info("Created patient profile for user: {}", username);
         return patientMapper.toPatientResponse(savedPatient);
     }
@@ -105,13 +115,12 @@ public class PatientService {
     }
 
     /**
-     * Xóa hồ sơ bệnh nhân theo userId (Admin).
+     * Giữ hồ sơ bệnh nhân. Admin khóa User nếu cần ngừng tài khoản.
      */
     public void deletePatient(Long userId) {
-        Patient patient = patientRepository.findByUserId(userId)
+        patientRepository.findByUserId(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.PATIENT_NOT_FOUND));
-        patientRepository.delete(patient);
-        log.info("Deleted patient profile for userId: {}", userId);
+        throw new AppException(ErrorCode.PATIENT_DELETE_NOT_ALLOWED);
     }
 
     /**
@@ -148,19 +157,4 @@ public class PatientService {
         );
     }
 
-    /**
-     * Sinh mã bệnh nhân tự động nếu request không truyền lên.
-     * Format: BN-YYYYMMDD-<millis 5 chữ số cuối>
-     */
-    private String generatePatientCode(String requestedCode) {
-        if (requestedCode != null && !requestedCode.isBlank()) {
-            if(patientRepository.existsByPatientCode(requestedCode)) {
-                throw new AppException(ErrorCode.PATIENT_CODE_EXISTS);
-            }
-            return requestedCode;
-        }
-        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        String suffix = String.valueOf(System.currentTimeMillis() % 100000);
-        return "BN-" + date + "-" + suffix;
-    }
 }

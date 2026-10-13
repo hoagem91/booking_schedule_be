@@ -12,12 +12,8 @@ import java.time.LocalDate;
 @AllArgsConstructor
 @Builder
 public class PatientCreateRequest {
-    // Có thể truyền lên hoặc để null cho Service tự sinh mã (VD: BN-20260927-001)
-    @Size(max = 50, message = "Mã bệnh nhân không được vượt quá 50 ký tự")
-    private String patientCode;
-
     @NotNull(message = "Ngày sinh không được để trống")
-    @Past(message = "Ngày sinh phải là một ngày trong quá khứ")
+    @PastOrPresent(message = "Ngày sinh không được ở tương lai")
     private LocalDate dateOfBirth;
 
     @NotNull(message = "Giới tính không được để trống")

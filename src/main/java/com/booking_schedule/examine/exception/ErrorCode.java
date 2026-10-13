@@ -19,6 +19,9 @@ public enum ErrorCode {
     EMAIL_IS_REQUIRED(1010, "Email is required", HttpStatus.BAD_REQUEST),
     //    Role
     INVALID_ROLE(1011, "Invalid Role", HttpStatus.BAD_REQUEST),
+    USER_INACTIVE(1012, "User account is inactive", HttpStatus.FORBIDDEN),
+    ROLE_PROFILE_CONFLICT(1013, "Roles must match existing patient and doctor profiles", HttpStatus.CONFLICT),
+    PATIENT_DELETE_NOT_ALLOWED(2005, "Patient profiles are retained; deactivate the user account instead", HttpStatus.CONFLICT),
 
     //    Patient
     PATIENT_ALREADY_EXISTS(2001, "Patient profile already exists for this user", HttpStatus.BAD_REQUEST),
@@ -67,6 +70,20 @@ public enum ErrorCode {
     TIME_SLOT_NOT_AVAILABLE(7003, "Time slot or schedule is not available", HttpStatus.CONFLICT),
     TIME_SLOT_INVALID_STATUS(7004, "Only AVAILABLE, CLOSED or UNAVAILABLE may be requested", HttpStatus.BAD_REQUEST),
     TIME_SLOT_INVALID_COUNT(7005, "Cannot release a time slot with no booked patients", HttpStatus.CONFLICT),
+    APPOINTMENT_NOT_FOUND(8001, "Appointment not found", HttpStatus.NOT_FOUND),
+    APPOINTMENT_INVALID_REQUEST(8002, "Invalid appointment data or date range", HttpStatus.BAD_REQUEST),
+    APPOINTMENT_SLOT_MISMATCH(8003, "Slot does not match doctor or appointment date", HttpStatus.CONFLICT),
+    APPOINTMENT_DUPLICATE(8004, "Patient has an overlapping appointment", HttpStatus.CONFLICT),
+    APPOINTMENT_INVALID_TRANSITION(8005, "Appointment status transition is not allowed", HttpStatus.CONFLICT),
+    APPOINTMENT_CANCEL_TOO_LATE(8006, "Cancellation deadline has passed", HttpStatus.CONFLICT),
+    SERVICE_INACTIVE(8007, "Service is not active", HttpStatus.BAD_REQUEST),
+    APPOINTMENT_SPECIALTY_MISMATCH(8008, "Service does not belong to doctor's specialty", HttpStatus.BAD_REQUEST),
+    PROMOTION_NOT_FOUND(8009, "Promotion not found", HttpStatus.NOT_FOUND),
+    PROMOTION_INVALID(8010, "Promotion is inactive, expired, exhausted or invalid", HttpStatus.CONFLICT),
+    APPOINTMENT_PRICE_UNAVAILABLE(8011, "Historical appointment price is unavailable", HttpStatus.CONFLICT),
+    APPOINTMENT_INVALID_SETTING(8012, "CANCEL_BEFORE_HOURS must be a nonnegative integer", HttpStatus.CONFLICT),
+    APPOINTMENT_TOO_EARLY(8013, "Appointment has not started or ended yet", HttpStatus.CONFLICT),
+    REVIEW_NOT_ALLOWED(8014, "Only a completed appointment can be reviewed once", HttpStatus.CONFLICT),
     ;
 
     ErrorCode(int code, String message, HttpStatusCode statusCode) {

@@ -32,6 +32,8 @@ public class AppointmentResponse {
     private Long serviceId;
     private String serviceName;
     private BigDecimal servicePrice;
+    private BigDecimal finalAmount;
+    private boolean reviewEligible;
 
     // Phẳng hóa thông tin Khung giờ (Từ TimeSlot)
     private Long timeSlotId;
