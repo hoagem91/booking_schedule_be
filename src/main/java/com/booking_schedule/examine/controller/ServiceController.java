@@ -1,10 +1,10 @@
 package com.booking_schedule.examine.controller;
 
 import com.booking_schedule.examine.dto.request.ServiceRequest;
+import com.booking_schedule.examine.dto.request.ServiceSearchRequest;
 import com.booking_schedule.examine.dto.request.ServiceUpdateRequest;
 import com.booking_schedule.examine.dto.response.ApiResponse;
 import com.booking_schedule.examine.dto.response.ServiceResponse;
-import com.booking_schedule.examine.enums.EStatus;
 import com.booking_schedule.examine.service.ServicesService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -46,13 +46,11 @@ public class ServiceController {
                 .build();
     }
 
-    @GetMapping
-    ApiResponse<Page<ServiceResponse>> getAllServices(@RequestParam(required = false) EStatus status,
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Long specialtyId,
+    @PostMapping("/search")
+    ApiResponse<Page<ServiceResponse>> getAllServices(@Valid @RequestBody ServiceSearchRequest request,
             @PageableDefault(size = 20, sort = "id") Pageable pageable){
         return ApiResponse.<Page<ServiceResponse>>builder()
-                .result(servicesService.searchServices(keyword, specialtyId, status, pageable))
+                .result(servicesService.searchServices(request.getKeyword(), request.getSpecialtyId(), request.getStatus(), pageable))
                 .build();
     }
 

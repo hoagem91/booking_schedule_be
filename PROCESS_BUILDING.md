@@ -1,5 +1,7 @@
 # Quá Trình Xây Dựng Dự Án
 
+**Cập nhật contract search:** Các ví dụ GET search của lịch hẹn admin, lịch bác sĩ admin/public, phòng admin và dịch vụ admin trong nhật ký bên dưới đã được thay thế bởi `POST .../search`. Bộ lọc truyền trong JSON body; `page`, `size`, `sort` giữ trong query. Mapping và ví dụ hiện tại ở [SEARCH_API.md](SEARCH_API.md).
+
 ## Cập nhật `UserService.java`
 **Mục tiêu:** Xử lý và hoàn thiện các chức năng liên quan đến tài khoản người dùng trong UserService.
 
@@ -531,3 +533,235 @@ Context path `/booking-schedule` đứng trước đường dẫn:
 - Bao gồm 13 test service/JPA TimeSlot, 3 test concurrency/rollback với transaction thật trên H2, 5 test HTTP/security TimeSlot, 31 test DoctorSchedule và 6 test hồi quy service/giá lịch hẹn.
 - Hai request đồng thời tranh một slot chỉ một request thành công; hai request đặt hai slot khác nhau với trần ca=1 cũng chỉ một request thành công. Counter rollback khi giao dịch giả lập Appointment thất bại. Các kết quả này xác nhận trên H2, chưa stress-test trên MySQL thật.
 - Kiểm tra mã MapStruct sinh ra: scheduleId và enum -> String đúng. `git diff --check` không phát hiện lỗi whitespace. Không chạy ứng dụng hoặc test contextLoads dùng MySQL thật.
+
+### 1\. Cấu trúc CSDL &amp; Quan hệ Nghiệp vụ (`appointments`)
+
+Theo sơ đồ thiết kế database, bảng `appointments` liên kết trực tiếp với 5 entity khác [Passage 2, Passage 10, Passage 14]:
+
+* **patient\_id** (FK ➔ `patients`): Bệnh nhân đăng ký khám [Passage 10].
+* **doctor\_id** (FK ➔ `doctors`): Bác sĩ phụ trách ca khám [Passage 10].
+* **service\_id** (FK ➔ `services`): Dịch vụ khám đã chọn (ví dụ: *Khám Nội tổng quát*, *Nội soi dạ dày*) [Passage 7, Passage 10].
+* **time\_slot\_id** (FK ➔ `time_slots`): Khung giờ cụ thể thuộc ca trực của bác sĩ [Passage 9, Passage 10].
+* **promotion\_id** (FK ➔ `promotions`, *Optional*): Mã giảm giá được áp dụng [Passage 10, Passage 12].
+
+Các thuộc tính cốt lõi khác: `appointment_code` (Mã lịch hẹn - UNIQUE), `appointment_date` (Ngày khám), `reason` (Lý do khám), `status` (Trạng thái), `note` (Ghi chú) [Passage 10].
+
+---
+
+### 2\. Vòng đời Trạng thái (`AppointmentStatus` Enum)
+
+Trạng thái lịch hẹn cần khai báo bằng Enum trong Java và lưu dưới dạng `EnumType.STRING` [Passage 17]:
+
+```
+[ PENDING ] ──(Admin/Lễ tân xác nhận)──&gt; [ CONFIRMED ] ──(Bắt đầu khám)──&gt; [ IN_PROGRESS ] ──(Khám xong)──&gt; [ COMPLETED ]
+     │                                        │
+     ├─────────────(Hủy lịch)─────────────────┴─────────────&gt; [ CANCELLED ]
+     │
+     └─────────────(Bệnh nhân không đến)────────────────────&gt; [ NO_SHOW ]
+
+```
+
+* **PENDING**: Lịch hẹn vừa được bệnh nhân tạo từ giao diện Client, chờ phòng khám xác nhận [Passage 24].
+* **CONFIRMED**: Đã được xác nhận (hoặc tự động chuyển sang `CONFIRMED` nếu bệnh nhân thanh toán online thành công) [Passage 24].
+* **IN\_PROGRESS**: Bệnh nhân đã có mặt tại phòng khám và đang trong ca khám với bác sĩ [Passage 24].
+* **COMPLETED**: Ca khám hoàn tất (làm cơ sở tạo `Payment`, cho phép viết `Review`) [Passage 13, Passage 24].
+* **CANCELLED**: Lịch hẹn bị hủy bởi bệnh nhân hoặc phòng khám [Passage 9].
+* **NO\_SHOW**: Lịch hẹn đã xác nhận nhưng bệnh nhân không có mặt.
+
+---
+
+### 3\. Các Ràng buộc Nghiệp vụ cốt lõi trong `AppointmentService`
+
+#### 🔹 A. Validation khi Tạo mới Lịch hẹn (`createAppointment`)
+
+1. **Kiểm tra sự tồn tại &amp; Trạng thái các Entity liên quan**:
+* `Patient`: Hồ sơ bệnh nhân phải tồn tại [Passage 5].
+* `Doctor`: Bác sĩ phải ở trạng thái `ACTIVE` [Passage 6].
+* `Service`: Dịch vụ phải đang `ACTIVE` [Passage 7]. Đồng thời nên kiểm tra dịch vụ có thuộc đúng Chuyên khoa (`specialty_id`) của bác sĩ hay không [Passage 6, Passage 7].
+* `TimeSlot`: Khung giờ phải đang ở trạng thái `AVAILABLE` và thuộc đúng ca trực (`DoctorSchedule`) của bác sĩ trong ngày `appointment_date` [Passage 8, Passage 9, Passage 16].
+2. **Kiểm tra Công suất Khung giờ &amp; Chống trùng lịch (Concurrency Control)**:
+* **Ràng buộc số lượng**: Kiểm tra `timeSlot.bookedCount &lt; timeSlot.maxPatients` [Passage 9, Passage 16].
+* **Khóa đồng thời (Locking)**: Vì có thể có nhiều bệnh nhân bấm đặt cùng 1 khung giờ tại 1 thời điểm, trong `TimeSlotRepository` cần dùng **Pessimistic Locking** (`@Lock(LockModeType.PESSIMISTIC_WRITE)`) khi đọc thông tin slot để tránh lỗi overbooking.
+* **Cập nhật lan truyền**: Tăng `timeSlot.bookedCount` lên 1\. Nếu `bookedCount == maxPatients`, tự động đổi `timeSlot.status = 'FULL'` [Passage 9].
+3. **Chống bệnh nhân đặt trùng khung giờ**:
+* Kiểm tra bệnh nhân đó đã có lịch hẹn nào khác ở trạng thái `PENDING` hoặc `CONFIRMED` trùng ngày và khung giờ đó chưa.
+4. **Xử lý Mã khuyến mãi (** **Promotion** **)** *(nếu có)*:
+* Kiểm tra mã có đang `ACTIVE`, còn trong thời hạn sử dụng (`start_date` đến `end_date`), và chưa vượt quá số lượt dùng (`used_count &lt; usage_limit`) [Passage 12].
+* Tăng `promotion.usedCount` lên 1 [Passage 12].
+5. **Tự động sinh Mã lịch hẹn (** **appointment\_code** **)**:
+* Service tự sinh mã dạng duy nhất (ví dụ: `LH-20261008-001`) [Passage 10].
+
+#### 🔹 B. Logic khi Hủy lịch (`cancelAppointment`)
+
+* **Kiểm tra điều kiện hủy**: Phải hủy trước thời gian quy định (ví dụ: kiểm tra tham số `CANCEL_BEFORE_HOURS` trong bảng `system_settings`) [Passage 14].
+* **Giải phóng Khung giờ**: Khi lịch bị chuyển sang `CANCELLED`:
+    * Giảm `timeSlot.bookedCount` đi 1 [Passage 9].
+    * Nếu `timeSlot.status` đang là `FULL`, tự động chuyển lại thành `AVAILABLE` để người khác đăng ký [Passage 9].
+    * Nếu `doctorSchedule.status` đang là `FULL`, chuyển lại thành `OPEN` [Passage 8].
+* **Giải phóng Mã khuyến mãi**: Giảm `promotion.usedCount` đi 1 (nếu có áp dụng) [Passage 12].
+
+#### 🔹 C. Logic khi Hoàn tất khám (`completeAppointment`)
+
+* Chuyển trạng thái sang `COMPLETED` [Passage 24].
+* Tự động khởi tạo bản ghi thanh toán `Payment` ở trạng thái `PENDING` (nếu chưa thanh toán) [Passage 11].
+* Mở quyền cho bệnh nhân đánh giá dịch vụ (`Review`) cho lịch hẹn này [Passage 13].
+* Tạo thông báo (`Notification`) gửi tới tài khoản bệnh nhân [Passage 13].
+
+---
+
+### 4\. Thiết kế Controller API (`AppointmentController`)
+
+Theo chuẩn phân chia RESTful API [Passage 18]:
+
+#### 🌐 **Public / Patient APIs (** **/api/patient/appointments** **)**:
+
+* `POST /api/patient/appointments`: Bệnh nhân đăng ký lịch hẹn mới (yêu cầu `@Valid` request DTO).
+* `GET /api/patient/appointments/my-history`: Bệnh nhân xem danh sách lịch hẹn của chính mình (lấy `userId` từ `SecurityContext`).
+* `GET /api/patient/appointments/{id}`: Xem chi tiết 1 lịch hẹn.
+* `PATCH /api/patient/appointments/{id}/cancel`: Bệnh nhân chủ động hủy lịch.
+
+#### 🛡️ **Admin / Staff APIs (** **/api/admin/appointments** **)**:
+
+* `GET /api/admin/appointments`: Lấy danh sách lịch hẹn toàn hệ thống. Hỗ trợ phân trang (`Pageable`), tìm kiếm theo keyword (mã, tên bệnh nhân), và lọc theo `doctorId`, `patientId`, `status`, khoảng ngày `appointmentDate`.
+* `POST /api/admin/appointments`: Admin/Lễ tân tạo lịch hẹn trực tiếp cho bệnh nhân đăng ký tại chỗ hoặc qua điện thoại.
+* **Dedicated Action APIs (Cập nhật trạng thái từng bước)** [Passage 18]:
+    * `PATCH /api/admin/appointments/{id}/confirm`: Xác nhận lịch hẹn.
+    * `PATCH /api/admin/appointments/{id}/in-progress`: Chuyển bệnh nhân vào phòng khám.
+    * `PATCH /api/admin/appointments/{id}/complete`: Hoàn thành ca khám.
+    * `PATCH /api/admin/appointments/{id}/cancel`: Hủy lịch hẹn từ phía phòng khám.
+## Triển khai Appointment — 08/10/2026
+
+### Phân tích và quyết định trong quá trình triển khai
+- Hoàn thiện service viết dở, bổ sung controller patient/admin, mapping quan hệ, validation DTO và phân quyền URL.
+- Patient lấy hồ sơ từ username trong JWT; patientId optional để tương thích DTO, nếu truyền khác hồ sơ hiện tại trả 403. Admin/Staff phải truyền patientId. API patient yêu cầu SCOPE_PATIENT; admin yêu cầu ADMIN/SUPER_ADMIN/STAFF.
+- Tạo lịch kiểm tra bác sĩ/chuyên khoa/dịch vụ ACTIVE, slot đúng bác sĩ và ngày khám; dịch vụ có chuyên khoa phải trùng bác sĩ, dịch vụ không gắn chuyên khoa dùng chung.
+- Chống lịch trùng bằng khoảng [start,end), gồm PENDING/CONFIRMED/IN_PROGRESS; khóa Patient để tuần tự hóa booking qua nhiều ca. Query trùng lịch dùng khóa để đọc dữ liệu mới nhất thay vì snapshot cũ ở MySQL REPEATABLE_READ.
+- Thứ tự khóa booking: Patient -> DoctorSchedule -> các TimeSlot theo ID -> lịch hẹn trùng -> Promotion. Các thao tác trạng thái/hủy khóa DoctorSchedule -> slots -> Appointment -> Promotion. Ghi Appointment, counter và Notification trong cùng transaction. Gọi reserve/release nội bộ đúng một lần.
+- Promotion kiểm tra ACTIVE, thời hạn tại lúc đặt, usageLimit, giá trị giảm hợp lệ; khóa hàng khi tăng/giảm usedCount. Giảm FIXED/PERCENT, áp maxDiscount, chặn số tiền âm, làm tròn 2 chữ số HALF_UP.
+- Bổ sung appointments.final_amount nullable/updatable=false: snapshot tiền sau giảm giá; service_price vẫn lưu giá niêm yết. Không lấy giá Service/Promotion hiện tại để tạo Payment cho lịch cũ. Dữ liệu cũ thiếu final_amount có thể dùng service_price nếu không có promotion; lịch cũ có promotion thiếu snapshot cần đối soát, trả 409 khi không thể tính đúng.
+- PENDING -> CONFIRMED -> IN_PROGRESS -> COMPLETED; PENDING/CONFIRMED -> CANCELLED hoặc NO_SHOW. Bắt đầu khám không trước giờ bắt đầu; NO_SHOW không trước giờ kết thúc slot. Lặp cùng action trả kết quả hiện tại, không lặp counter/payment/notification.
+- Hủy patient đọc CANCEL_BEFORE_HOURS (mặc định 24 nếu chưa cấu hình), yêu cầu số nguyên không âm (tối đa 876000 giờ). Phòng khám có thể hủy PENDING/CONFIRMED không áp cutoff. Không hủy IN_PROGRESS/COMPLETED/NO_SHOW; không xóa Appointment lịch sử.
+- Giữ quy tắc TimeSlot hiện có: ca OPEN không bị đổi FULL tự động; quota đầy đóng slot theo policy. Ca FULL/CLOSED do quản trị viên đặt không tự OPEN khi release. Quyết định này cụ thể hóa phần mô tả FULL -> OPEN trong đặc tả, tránh mở lại ca bị khóa chủ động. COMPLETED/NO_SHOW vẫn giữ counter đã tiếp nhận, không nhả quota như lịch hủy.
+- Hủy cả DoctorSchedule gọi chung AppointmentLifecycle: nhả slot và trả lượt promotion, tạo thông báo đúng một lần. Giữ dung sai bookedCount=0 cho dữ liệu cũ khi hủy ca như module trước; hủy đơn lẻ vẫn báo lỗi counter sai.
+- Hoàn tất tạo Payment PENDING/CASH nếu chưa có Payment, giữ nguyên Payment đã có (kể cả SUCCESS), mở reviewEligible. Bổ sung API viết Review: chỉ chủ lịch COMPLETED, tối đa một review, rating 1..5; khóa lịch hẹn chống gửi trùng đồng thời.
+- Notification chỉ lưu DB. Hoàn tiền qua cổng thanh toán và tự confirm sau thanh toán online cần tích hợp module Payment/cổng thanh toán sau này; không giả lập SUCCESS/REFUNDED. Không tự tạo Review rỗng khi complete.
+
+### API (thêm context path /booking-schedule)
+- POST /api/patient/appointments: body doctorId, serviceId, timeSlotId, appointmentDate; optional reason/note/promotionId, không cần patientId.
+- GET /api/patient/appointments/my-history: page/size/sort, chỉ dữ liệu chủ tài khoản.
+- GET /api/patient/appointments/{id}; PATCH /api/patient/appointments/{id}/cancel (body optional {"note":"..."}).
+- POST /api/patient/appointments/{id}/review: {"rating":5,"comment":"..."}.
+- POST /api/admin/appointments: cùng DTO, bắt buộc patientId.
+- GET /api/admin/appointments/{id}; GET /api/admin/appointments: keyword (mã/tên bệnh nhân), doctorId/patientId/status/fromDate/toDate, page/size/sort.
+- PATCH /api/admin/appointments/{id}/confirm, /in-progress, /complete, /cancel, /no-show: body note optional. Không cung cấp PATCH status tùy ý.
+- Response bọc ApiResponse; danh sách trả Page trong result; lỗi nghiệp vụ 8001–8014. Thông tin promotion trong response là metadata hiện tại; servicePrice/finalAmount là nguồn giá lịch sử.
+
+### Xác minh đang thực hiện
+- mvn -q -DskipTests compile: thành công ở lần triển khai đầu.
+- Tiếp theo kiểm thử JPA/H2, transaction/đồng thời và MockMvc validation/phân quyền; không chạy contextLoads kết nối MySQL thật.
+
+### Kết quả xác minh cuối
+- Đã sửa cấu hình test kế thừa MySQLDialect sang H2Dialect; lỗi tạo schema ở lần chạy đầu đã được giải quyết, không thay cấu hình DB production.
+- Build sạch: mvn -q clean -Dtest=AppointmentServiceTest,AppointmentControllerTest,AppointmentConcurrencyTest test — exit code 0.
+- Sau rà soát bổ sung flush ở các action để response updatedAt phản ánh lần ghi hiện tại, chạy lại cùng 3 lớp test — exit code 0.
+- Tổng 59 test pass: 40 service/JPA H2, 11 MockMvc validation/security, 8 transaction/concurrency. Không failure/error/skipped.
+- Các case đồng thời: hai bệnh nhân tranh chỗ cuối, hai slot tranh trần tổng ca, một bệnh nhân đặt trùng trên hai ca, promotion giới hạn dùng chung, hủy hai lần đồng thời, hủy ca cùng lúc hủy lịch, review hai lần đồng thời. Kiểm tra rollback counter khi promotion không tồn tại.
+- Kiểm tra lịch sử chỉ trả dữ liệu bệnh nhân hiện tại, keyword có ký tự %, cutoff hủy, status không hợp lệ, entity inactive, giá snapshot không đổi khi sửa giá/promotion, lịch cũ thiếu giá cần đối soát, Payment SUCCESS không bị ghi đè.
+- Đã kiểm tra AppointmentMapperImpl sinh ra: patient/doctor/service/slot/promotion được phẳng hóa đúng; servicePrice/finalAmount đọc trực tiếp Appointment. git diff --check không báo lỗi whitespace.
+- Schema: Hibernate ddl-auto=update sẽ bổ sung cột final_amount nullable khi khởi động ứng dụng; nếu môi trường dùng migration cần thêm DECIMAL(15,2) nullable vào appointments. Không backfill lịch cũ từ giá hiện tại, không sửa dữ liệu MySQL thật trong lần này.
+- Ngày giờ tiếp tục dùng timezone JVM như các module hiện tại; server cần cấu hình timezone phòng khám. Chưa stress-test MySQL hoặc tích hợp cổng thanh toán/email/SMS/push. Không chạy ExamineApplicationTests.contextLoads vì sử dụng cấu hình MySQL thật.
+- Mã nguồn hiện tại không còn các lớp test module cũ được nhắc ở các mục trước của tài liệu; kết quả lần này chỉ tính 3 lớp test Appointment mới. Test mới có kiểm tra tích hợp TimeSlot và hủy DoctorSchedule, không tuyên bố đã chạy lại toàn bộ 58 test cũ.
+
+## Refactor USER – PATIENT – DOCTOR: đăng ký một bước (12/10/2026)
+
+- Tạo User và Patient trong cùng transaction tại `AuthenticationService.registerPatient()`; thêm `/auth/register` và chuyển `/users/registration` thành alias.
+- JWT/response có `userId`, `patientId`; `authVersion` thu hồi JWT khi đổi mật khẩu/quyền, khóa tài khoản hoặc thêm hồ sơ.
+- Tách `/users/me` và DTO cá nhân khỏi API quản trị; siết quyền quản lý Users/Patients/Doctors, bỏ public GET User.
+- Đồng bộ role/hồ sơ: tạo Doctor đồng thời cấp DOCTOR; chặn gán/gỡ PATIENT/DOCTOR lệch hồ sơ. Admin không tự cấp SUPER_ADMIN hoặc sửa Super Admin.
+- Bỏ UNIQUE giới tính; bắt buộc user_id; bỏ cascade xóa; giữ hồ sơ khi khóa User/vô hiệu hóa Doctor, chặn xóa Patient.
+- Sinh mã BN/BS/LH bằng UUID; kiểm tra trạng thái tài khoản khi nhận lịch mới và công khai lịch bác sĩ.
+- Thêm migration MySQL thủ công, hướng dẫn frontend và xử lý tài khoản cũ; chưa chạy script migration.
+- `mvn test -q`: PASS 81 test, 0 failure/error/skipped. `git diff --check`: PASS.
+- Các lượt test đầu dùng contextLoads/MySQL theo cấu hình cũ; đã đổi contextLoads sang H2 cho các lượt sau.
+- Chi tiết và request mẫu: [REFACTOR_USER_PATIENT_DOCTOR.md](REFACTOR_USER_PATIENT_DOCTOR.md).
+
+1. Phân tích Cấu trúc CSDL & Mô hình Quan hệ (rooms)Theo thiết kế database [Passage 7, Passage 14]:Các thuộc tính chính:id: Khóa chính (BIGINT, Auto Increment) [Passage 7].code: Mã phòng khám (Mô hình: PK-101, PK-202 - UNIQUE, NOT NULL) [Passage 7].name: Tên phòng khám (ví dụ: Phòng khám Nội tổng quát 1, Phòng khám Tai Mũi Họng) [Passage 7].location: Vị trí phòng (ví dụ: Tầng 1 - Dãy A, Tầng 2 - Phòng 205) [Passage 7].specialty_id: Khóa ngoại trỏ tới specialties(id) (Có thể NULL nếu là phòng dùng chung/đa khoa) [Passage 7].status: Trạng thái phòng (AVAILABLE, OCCUPIED, MAINTENANCE, INACTIVE) [Passage 7].Mô hình Quan hệ (Relationships):Specialty ➔ Room (1 : N): Một chuyên khoa có thể gồm nhiều phòng khám phụ trách [Passage 14].Room ➔ DoctorSchedule (1 : N): Một phòng khám có thể được xếp lịch cho nhiều ca trực khác nhau của bác sĩ [Passage 8, Passage 14].2. Các Ràng buộc Nghiệp vụ cốt lõi trong RoomServiceKhi viết logic xử lý cho RoomService, bạn cần bắt buộc kiểm tra các quy tắc sau:A. Ràng buộc khi Tạo mới / Cập nhật (createRoom / updateRoom)Kiểm tra trùng Mã phòng (code):code phải là duy nhất. Khi thêm mới hoặc cập nhật, phải kiểm tra roomRepository.existsByCode(code).Kiểm tra Chuyên khoa (specialty_id):Nếu specialty_id được truyền lên (không null), bắt buộc Chuyên khoa đó phải tồn tại trong bảng specialties và đang ở trạng thái ACTIVE [Passage 6, Passage 7].B. Ràng buộc Kiểm tra Xung đột Lịch trực (Overlapping Check)Đây là logic quan trọng nhất liên quan tới Room khi xếp ca làm việc cho Bác sĩ (DoctorSchedule) [Passage 8]:Không thể xếp 2 bác sĩ trực cùng 1 phòng vào cùng 1 khoảng thời gian: Khi Admin tạo hoặc cập nhật ca làm việc DoctorSchedule có gán room_id, Service phải kiểm tra câu truy vấn: $$\text{Số ca đè nhau} = \text{COUNT}(\text{doctor\_schedules}) \quad \text{WHERE } \text{room\_id} = X \text{ AND } \text{work\_date} = Y \text{ AND } (\text{start\_time} < \text{newEndTime} \text{ AND } \text{end\_time} > \text{newStartTime})$$Nếu COUNT > 0 ➔ Ném BadRequestException("Phòng khám đã được gán cho một bác sĩ khác trong khoảng thời gian này").C. Ràng buộc khi Thay đổi Trạng thái hoặc Xóa Phòng (deleteRoom / updateStatus)Chuyển trạng thái sang MAINTENANCE (Bảo trì) hoặc INACTIVE:Kiểm tra xem phòng đó có lịch làm việc DoctorSchedule nào trong tương lai (workDate >= [đã xoá đường liên kết đáng ngờ]()) đang ở trạng thái OPEN hoặc FULL hay không [Passage 8].Nếu có, ném lỗi yêu cầu Admin phải hủy hoặc dời phòng cho các ca trực đó trước khi đóng phòng [Passage 8, Passage 18].Không thực hiện Xóa cứng (Hard Delete):Nếu phòng đã từng được gán cho ít nhất 1 DoctorSchedule, không cho phép xóa khỏi DB để bảo toàn lịch sử phân công. Nên áp dụng Soft Delete hoặc chuyển status = INACTIVE.3. Thiết kế RESTful API Controller (RoomController)Theo chuẩn phân chia API dành cho Admin và Public [Passage 18, Passage 26]:🌐 Public / Client APIs (/api/public/rooms)GET /api/public/rooms: Lấy danh sách các phòng khám đang hoạt động (status = 'AVAILABLE').GET /api/public/specialties/{specialtyId}/rooms: Lấy danh sách phòng thuộc về một Chuyên khoa cụ thể.🛡️ Admin / Staff APIs (/api/admin/rooms)GET /api/admin/rooms: Lấy danh sách phòng (Hỗ trợ phân trang Pageable, tìm kiếm theo code/name, lọc theo specialtyId và status).GET /api/admin/rooms/{id}: Lấy chi tiết thông tin 1 phòng.POST /api/admin/rooms: Tạo phòng khám mới (Yêu cầu quyền ADMIN).PUT /api/admin/rooms/{id}: Cập nhật thông tin phòng (mã, tên, vị trí, chuyên khoa).PATCH /api/admin/rooms/{id}/status: Cập nhật nhanh trạng thái phòng (AVAILABLE, MAINTENANCE, INACTIVE) [Passage 18].DELETE /api/admin/rooms/{id}: Xóa/Tạm ẩn phòng khám.
+## Phân tích và triển khai nghiệp vụ Room — 13/10/2026
+
+### 1. Đối chiếu đặc tả với mã nguồn
+
+- Đọc phần nghiệp vụ Room do người dùng bổ sung cuối tài liệu, kiểm tra entity/DTO/repository, DoctorScheduleService và SecurityConfig.
+- Entity Room đã có đúng các trường và quan hệ N:1 với Specialty; DoctorSchedule đã tham chiếu Room. Chưa có RoomService, RoomMapper hoặc controller quản lý/public.
+- RoomRequest chỉ kiểm tra độ dài status, cho phép giá trị tùy ý. Repository chưa hỗ trợ kiểm tra mã trùng khi tạo/cập nhật và tìm kiếm phân trang.
+- DoctorScheduleService đã khóa phòng, kiểm tra AVAILABLE và overlap [start, end), loại trừ ca CANCELLED và chính ca đang sửa. Tuy nhiên truy vấn exists thông thường có thể dùng snapshot cũ ở MySQL REPEATABLE_READ; chuyển ca CLOSED sang FULL chưa kiểm tra lại phòng/lịch trùng.
+- Chưa có ràng buộc đóng phòng đang có ca OPEN/FULL từ hôm nay trở đi, hoặc xóa phòng có lịch sử; chưa phân quyền URL của Room.
+
+### 2. Quyết định nghiệp vụ
+
+- Room là tài nguyên phân công phòng. Không tự chuyển OCCUPIED chỉ vì có một ca trong tương lai; trạng thái phòng không thay thế kiểm tra overlap theo ngày/giờ.
+- Giữ status dạng String để tương thích entity và dữ liệu hiện có, nhưng giới hạn giá trị AVAILABLE/OCCUPIED/MAINTENANCE/INACTIVE tại request và service. PATCH status chỉ nhận AVAILABLE/MAINTENANCE/INACTIVE như đặc tả; POST/PUT vẫn nhận đủ bốn giá trị của mô hình.
+- Chuẩn hóa code bằng trim + uppercase; kiểm tra trùng không phân biệt hoa/thường, cập nhật loại trừ chính id. UNIQUE(code) ở DB chặn tranh chấp đồng thời; trả ROOM_CODE_EXISTS (409) cho lỗi mã trùng.
+- Tạo mới mặc định AVAILABLE. PUT yêu cầu code/name, thay thế location/specialty; specialtyId=null nghĩa là phòng dùng chung. Status không truyền khi PUT giữ trạng thái cũ.
+- Specialty được truyền phải tồn tại và ACTIVE. Không thêm quy tắc chuyên khoa phòng phải trùng chuyên khoa bác sĩ vì đặc tả chưa yêu cầu.
+- Đóng phòng sang MAINTENANCE/INACTIVE qua PATCH, PUT hoặc DELETE đều kiểm tra workDate >= LocalDate.now() và status OPEN/FULL. Bao gồm cả ca hôm nay đã hết giờ theo đúng điều kiện ngày trong đặc tả. Có ca như vậy phải hủy hoặc dời phòng trước; không tự hủy lịch hẹn.
+- DELETE với bất kỳ DoctorSchedule tham chiếu nào chuyển INACTIVE và giữ quan hệ lịch sử; chỉ hard delete phòng chưa từng được phân công. Lặp DELETE phòng đã INACTIVE có lịch sử vẫn thành công nếu không có ca OPEN/FULL cần xử lý.
+- Ca CLOSED vẫn giữ phân công phòng và tham gia kiểm tra overlap; chỉ ca CANCELLED giải phóng phân công. Ca CLOSED không ngăn đóng phòng theo đặc tả, nhưng khi mở lại OPEN/FULL phải kiểm tra AVAILABLE và conflict.
+- Public chỉ trả AVAILABLE, bao gồm phòng dùng chung tại danh sách tổng. Endpoint theo specialty trả phòng AVAILABLE thuộc chính chuyên khoa đó; specialty không tồn tại trả 404, chuyên khoa tồn tại không có phòng trả [].
+- Staff được GET danh sách/chi tiết quản trị; ADMIN/SUPER_ADMIN được ghi. PATIENT/DOCTOR không có quyền API quản trị Room.
+
+### 3. Thay đổi thực hiện
+
+- Thêm RoomService với create/update/status/delete/get, tìm kiếm Page theo keyword code/name, specialtyId/status và danh sách public. Escape %, _ và backslash trong keyword để tìm literal.
+- Thêm RoomMapper phẳng hóa specialtyId/specialtyName, RoomStatusRequest, RoomController và PublicRoomController; bổ sung validation RoomRequest.
+- Mở rộng RoomRepository với JpaSpecificationExecutor và kiểm tra mã; DoctorScheduleRepository với kiểm tra lịch sử/lịch tương lai và truy vấn overlap có PESSIMISTIC_WRITE.
+- Sửa DoctorScheduleService dùng truy vấn overlap có khóa để đọc phân công mới nhất sau khi lấy khóa Doctor/Room; bổ sung kiểm tra phòng khi sửa ca OPEN/FULL giữ roomId cũ và khi chuyển sang FULL.
+- RoomService khóa Room trước khi đọc lịch và sửa/xóa; DoctorScheduleService dùng cùng khóa khi gán/mở lại ca. Điều này tuần tự hóa đóng phòng với phân ca. Các thao tác chạy trong transaction, lỗi rollback.
+- Thêm ErrorCode 9001 (mã trùng), 9002 (dữ liệu/status không hợp lệ), 9003 (còn ca OPEN/FULL từ hôm nay); giữ ROOM_NOT_FOUND/ROOM_UNAVAILABLE và SCHEDULE_ROOM_CONFLICT hiện có.
+- Giữ nguyên phần nghiệp vụ và các thay đổi người dùng đã có trong tài liệu; không khôi phục file test cũ người dùng đang xóa.
+
+### 4. API và request mẫu
+
+Tất cả URL bên dưới thêm context path `/booking-schedule` khi gọi ứng dụng.
+
+| HTTP | URL | Quyền / kết quả |
+|---|---|---|
+| GET | /api/public/rooms | Không cần đăng nhập; List phòng AVAILABLE |
+| GET | /api/public/specialties/{specialtyId}/rooms | Không cần đăng nhập; List phòng AVAILABLE theo chuyên khoa |
+| GET | /api/admin/rooms | ADMIN/SUPER_ADMIN/STAFF; Page, keyword/specialtyId/status/page/size/sort |
+| GET | /api/admin/rooms/{id} | ADMIN/SUPER_ADMIN/STAFF; chi tiết |
+| POST | /api/admin/rooms | ADMIN/SUPER_ADMIN; tạo |
+| PUT | /api/admin/rooms/{id} | ADMIN/SUPER_ADMIN; cập nhật |
+| PATCH | /api/admin/rooms/{id}/status | ADMIN/SUPER_ADMIN; đổi trạng thái |
+| DELETE | /api/admin/rooms/{id} | ADMIN/SUPER_ADMIN; xóa phòng chưa dùng hoặc chuyển INACTIVE |
+
+POST/PUT (specialtyId có thể null):
+
+```json
+{"code":"PK-101","name":"Phòng khám Nội 1","location":"Tầng 1 - Dãy A","specialtyId":1,"status":"AVAILABLE"}
+```
+
+PATCH status:
+
+```json
+{"status":"MAINTENANCE"}
+```
+
+Response bọc ApiResponse; danh sách quản trị dùng Page trong result, public dùng List. Không cần migration cột mới vì vẫn sử dụng schema Room hiện có.
+
+### 5. Quá trình xác minh
+
+- `mvn -q -DskipTests compile`: thành công.
+- Lượt `mvn -q clean test` đầu: test H2 kế thừa `spring.jpa.properties.hibernate.dialect=MySQLDialect` từ cấu hình ứng dụng, schema không tạo được. Đã override chính thuộc tính này thành H2Dialect riêng trong các test; không thay cấu hình production.
+- Đang chạy lại bộ test RoomServiceTest (JPA/H2 và tích hợp DoctorScheduleService), RoomControllerTest (MockMvc với SecurityConfig thật, mock decoder), RoomConcurrencyTest (hai thread/transaction độc lập).
+- Test hướng tới: mã trùng/chuẩn hóa, chuyên khoa thiếu/inactive/null, mapping, trạng thái sai, ca hôm nay/tương lai OPEN/FULL, ca CLOSED/CANCELLED/quá khứ, hard/soft delete, lọc public/phân trang/keyword literal, overlap/ca liền kề/self exclusion, tạo/sửa phân ca và mở FULL trên phòng bảo trì, quyền truy cập và request validation.
+- Kiểm thử đồng thời: hai bác sĩ tranh cùng phòng; phân ca với đóng phòng; tạo mã giống nhau khác hoa/thường. Chỉ dùng DB H2 trong bộ test, chưa xác minh hành vi khóa dưới tải thực tế trên MySQL.
+- Ngày giờ tiếp tục dùng timezone JVM như module DoctorSchedule hiện có; cần cấu hình JVM theo timezone phòng khám. Giao dịch đổi nhiều ca/phòng có thể bị DB hủy do deadlock; client có thể thử lại thao tác bị rollback. Chưa bổ sung cơ chế retry tự động.
+
+### 6. Kết quả xác minh cuối
+
+- Lượt xác minh cuối `mvn -q test`: exit code 0; **31 test pass**, 0 failure/error/skipped: 19 RoomServiceTest, 7 RoomControllerTest, 3 RoomConcurrencyTest, 2 RoomDatabaseErrorTest.
+- Bổ sung kiểm tra độ dài code sau uppercase (ví dụ ký tự ß mở rộng thành SS) để trả lỗi nghiệp vụ thay vì lỗi cột DB.
+- Rà soát lỗi tranh chấp mã trên MySQL: tên UNIQUE do Hibernate sinh có thể không chứa chữ code. Dùng mã lỗi duplicate key MySQL 1062/H2 SQLState 23505; test mô phỏng SQLException MySQL xác nhận mã trùng trả ROOM_CODE_EXISTS và FK 1452 không bị báo nhầm mã trùng. Đây là test mô phỏng lỗi driver, không phải chạy MySQL thật.
+- Kiểm tra RoomMapperImpl sinh ra: specialtyId/specialtyName, status và timestamps mapping đúng. `git diff --check`: thành công.
+- Bộ test hiện có trong mã nguồn chỉ gồm bốn lớp Room vừa thêm; không tính các báo cáo cũ trong target hoặc các lượt test của những module trước là kết quả của lần này. File ExamineApplicationTests đang được người dùng xóa vẫn giữ nguyên trạng thái xóa.
+- Không thay dữ liệu MySQL thật, không chạy migration, không tạo commit trong lần thực hiện này.
