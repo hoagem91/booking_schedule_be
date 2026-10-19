@@ -7,11 +7,13 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface RoomRepository extends JpaRepository<Room, Long> {
+public interface RoomRepository extends JpaRepository<Room, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Room> {
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @org.springframework.data.jpa.repository.Query("select r from Room r where r.id = :id")
     Optional<Room> findLockedById(@org.springframework.data.repository.query.Param("id") Long id);
     Optional<Room> findByCode(String code);
+    boolean existsByCodeIgnoreCase(String code);
+    boolean existsByCodeIgnoreCaseAndIdNot(String code, Long id);
 
     boolean existsBySpecialtyId(Long specialtyId);
 }

@@ -84,6 +84,9 @@ public enum ErrorCode {
     APPOINTMENT_INVALID_SETTING(8012, "CANCEL_BEFORE_HOURS must be a nonnegative integer", HttpStatus.CONFLICT),
     APPOINTMENT_TOO_EARLY(8013, "Appointment has not started or ended yet", HttpStatus.CONFLICT),
     REVIEW_NOT_ALLOWED(8014, "Only a completed appointment can be reviewed once", HttpStatus.CONFLICT),
+    ROOM_CODE_EXISTS(9001, "Room code already exists", HttpStatus.CONFLICT),
+    ROOM_INVALID_REQUEST(9002, "Invalid room data or status", HttpStatus.BAD_REQUEST),
+    ROOM_HAS_FUTURE_SCHEDULES(9003, "Cancel or move OPEN/FULL schedules from today onward before closing the room", HttpStatus.CONFLICT),
     ;
 
     ErrorCode(int code, String message, HttpStatusCode statusCode) {

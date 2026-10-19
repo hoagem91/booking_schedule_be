@@ -57,7 +57,12 @@ public class DoctorScheduleService {
         boolean changed = !date.equals(schedule.getWorkDate()) || !start.equals(schedule.getStartTime()) || !end.equals(schedule.getEndTime());
         // Acquire room lock before any ordinary read establishes a repeatable-read snapshot.
         Room targetRoom = request.getRoomId() != null ? resolveRoom(request.getRoomId()) : schedule.getRoom();
-        if (request.getRoomId() == null && targetRoom != null) rooms.findLockedById(targetRoom.getId());
+        if (request.getRoomId() == null && targetRoom != null) {
+            targetRoom = rooms.findLockedById(targetRoom.getId())
+                    .orElseThrow(() -> new AppException(ErrorCode.ROOM_NOT_FOUND));
+            if ((schedule.getStatus() == EStatusDoctorSchedule.OPEN || schedule.getStatus() == EStatusDoctorSchedule.FULL)
+                    && !"AVAILABLE".equals(targetRoom.getStatus())) throw new AppException(ErrorCode.ROOM_UNAVAILABLE);
+        }
         boolean booked = hasHistory(schedule);
         if (booked && (changed || capacity < schedule.getMaxPatients()))
             throw new AppException(ErrorCode.SCHEDULE_HAS_BOOKINGS);
@@ -104,7 +109,7 @@ public class DoctorScheduleService {
             throw new AppException(ErrorCode.SCHEDULE_INVALID_STATUS);
         if (status == EStatusDoctorSchedule.CANCELLED) cancel(schedule);
         else {
-            if (status == EStatusDoctorSchedule.OPEN) {
+            if (status == EStatusDoctorSchedule.OPEN || status == EStatusDoctorSchedule.FULL) {
                 requireActive(schedule.getDoctor());
                 validateTime(schedule.getWorkDate(), schedule.getStartTime(), schedule.getEndTime(), schedule.getMaxPatients());
                 if (schedule.getRoom() != null) resolveRoom(schedule.getRoom().getId());
@@ -160,13 +165,12 @@ public class DoctorScheduleService {
     }
 
     private void checkConflicts(DoctorSchedule schedule) {
-        Specification<DoctorSchedule> overlap = (root, query, cb) -> cb.and(
-                cb.equal(root.get("workDate"), schedule.getWorkDate()), cb.notEqual(root.get("status"), EStatusDoctorSchedule.CANCELLED),
-                cb.lessThan(root.get("startTime"), schedule.getEndTime()), cb.greaterThan(root.get("endTime"), schedule.getStartTime()),
-                schedule.getId() == null ? cb.conjunction() : cb.notEqual(root.get("id"), schedule.getId()));
-        if (schedules.exists(overlap.and((root, query, cb) -> cb.equal(root.get("doctor").get("id"), schedule.getDoctor().getId()))))
+        List<DoctorSchedule> conflicts = schedules.findLockedConflicts(schedule.getWorkDate(), schedule.getStartTime(),
+                schedule.getEndTime(), schedule.getId(), schedule.getDoctor().getId(),
+                schedule.getRoom() == null ? null : schedule.getRoom().getId(), EStatusDoctorSchedule.CANCELLED);
+        if (conflicts.stream().anyMatch(other -> other.getDoctor().getId().equals(schedule.getDoctor().getId())))
             throw new AppException(ErrorCode.SCHEDULE_DOCTOR_CONFLICT);
-        if (schedule.getRoom() != null && schedules.exists(overlap.and((root, query, cb) -> cb.equal(root.get("room").get("id"), schedule.getRoom().getId()))))
+        if (!conflicts.isEmpty())
             throw new AppException(ErrorCode.SCHEDULE_ROOM_CONFLICT);
     }
 

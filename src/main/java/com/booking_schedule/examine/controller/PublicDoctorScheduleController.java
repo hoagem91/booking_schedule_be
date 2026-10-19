@@ -1,11 +1,11 @@
 package com.booking_schedule.examine.controller;
 
+import com.booking_schedule.examine.dto.request.PublicDoctorScheduleSearchRequest;
 import com.booking_schedule.examine.dto.response.*;
 import com.booking_schedule.examine.service.DoctorScheduleService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
-import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -14,12 +14,10 @@ import java.util.List;
 public class PublicDoctorScheduleController {
     private final DoctorScheduleService service;
 
-    @GetMapping
-    public ApiResponse<List<DoctorScheduleResponse>> search(@RequestParam(required = false) Long doctorId,
-            @RequestParam(required = false) Long specialtyId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
+    @PostMapping("/search")
+    public ApiResponse<List<DoctorScheduleResponse>> search(@Valid @RequestBody PublicDoctorScheduleSearchRequest request) {
         return ApiResponse.<List<DoctorScheduleResponse>>builder()
-                .result(service.publicSchedules(doctorId, specialtyId, fromDate, toDate)).build();
+                .result(service.publicSchedules(request.getDoctorId(), request.getSpecialtyId(),
+                        request.getFromDate(), request.getToDate())).build();
     }
 }

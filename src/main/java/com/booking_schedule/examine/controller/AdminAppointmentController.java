@@ -8,9 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.data.web.PageableDefault;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
-import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/admin/appointments")
@@ -25,15 +23,12 @@ public class AdminAppointmentController {
     @GetMapping("/{id}")
     public ApiResponse<AppointmentResponse> get(@PathVariable Long id) { return wrap(service.get(id)); }
 
-    @GetMapping
-    public ApiResponse<Page<AppointmentResponse>> search(@RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Long doctorId, @RequestParam(required = false) Long patientId,
-            @RequestParam(required = false) EAppointmentStatus status,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+    @PostMapping("/search")
+    public ApiResponse<Page<AppointmentResponse>> search(@Valid @RequestBody AppointmentSearchRequest request,
             @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
         return ApiResponse.<Page<AppointmentResponse>>builder()
-                .result(service.search(keyword, doctorId, patientId, status, fromDate, toDate, pageable)).build();
+                .result(service.search(request.getKeyword(), request.getDoctorId(), request.getPatientId(),
+                        request.getStatus(), request.getFromDate(), request.getToDate(), pageable)).build();
     }
     @PatchMapping("/{id}/confirm")
     public ApiResponse<AppointmentResponse> confirm(@PathVariable Long id, @Valid @RequestBody(required = false) AppointmentActionRequest request) {

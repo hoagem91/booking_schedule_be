@@ -1,6 +1,8 @@
 package com.booking_schedule.examine.dto.request;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import lombok.*;
 
 @Getter
@@ -21,8 +23,10 @@ public class RoomRequest {
     private String location;
 
     // Tùy chọn: Có thể gán phòng thuộc về một chuyên khoa cụ thể hoặc để null (phòng đa năng)
+    @Positive(message = "ROOM_INVALID_REQUEST")
     private Long specialtyId;
 
     @Size(max = 30, message = "Trạng thái không được vượt quá 30 ký tự")
-    private String status; // AVAILABLE, MAINTENANCE, INACTIVE...
+    @Pattern(regexp = "AVAILABLE|OCCUPIED|MAINTENANCE|INACTIVE", message = "ROOM_INVALID_REQUEST")
+    private String status;
 }
