@@ -3,6 +3,7 @@ package com.booking_schedule.examine.service;
 import com.booking_schedule.examine.dto.request.ServiceRequest;
 import com.booking_schedule.examine.dto.request.ServiceUpdateRequest;
 import com.booking_schedule.examine.dto.response.ServiceResponse;
+import com.booking_schedule.examine.dto.response.ServiceDeleteResponse;
 import com.booking_schedule.examine.entity.Specialty;
 import com.booking_schedule.examine.enums.EStatus;
 import com.booking_schedule.examine.exception.AppException;
@@ -21,6 +22,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.dao.DataIntegrityViolationException;
+import jakarta.persistence.criteria.JoinType;
 
 import java.text.Normalizer;
 import java.sql.SQLException;
@@ -45,8 +47,8 @@ public class ServicesService {
         if(code == null || code.trim().isEmpty()){
             code = generateCodeFromName(request.getName().trim());
         } else {
-            code = code.trim();
-            if(serviceRepository.existsByCode(code)){
+            code = normalizeCode(code);
+            if(serviceRepository.existsByCodeIgnoreCase(code)){
                 throw new AppException(ErrorCode.SERVICE_CODE_EXISTED);
             }
         }
@@ -67,32 +69,36 @@ public class ServicesService {
 
     @Transactional
     public ServiceResponse updateService(Long id, ServiceUpdateRequest request){
-        com.booking_schedule.examine.entity.Service service = serviceRepository.findById(id).orElseThrow(()-> new AppException(ErrorCode.SERVICE_NOT_EXISTED));
+        com.booking_schedule.examine.entity.Service service = locked(id);
+        if (Boolean.TRUE.equals(request.getClearSpecialty()) && request.getSpecialtyId() != null)
+            throw new AppException(ErrorCode.SERVICE_INVALID_REQUEST);
         if(request.getName() != null && !request.getName().isBlank()){
-            request.setName(request.getName().trim());
+            service.setName(request.getName().trim());
         }
 
         if (request.getCode() != null && !request.getCode().isBlank()) {
-            if (serviceRepository.existsByCodeAndIdNot(request.getCode().trim(), id)) {
+            String code = normalizeCode(request.getCode());
+            if (serviceRepository.existsByCodeIgnoreCaseAndIdNot(code, id)) {
                 throw new AppException(ErrorCode.SERVICE_CODE_EXISTED);
             }
-            request.setCode(request.getCode().trim());
+            service.setCode(code);
         }
-        if (request.getSpecialtyId() != null) {
+        if (Boolean.TRUE.equals(request.getClearSpecialty())) {
+            service.setSpecialty(null);
+        } else if (request.getSpecialtyId() != null) {
             service.setSpecialty(getActiveSpecialty(request.getSpecialtyId()));
-        } else if (request.getStatus() == EStatus.ACTIVE && service.getSpecialty() != null
-                && service.getSpecialty().getStatus() != EStatus.ACTIVE) {
-            throw new AppException(ErrorCode.SPECIALTY_INACTIVE);
         }
-        serviceMapper.updateService(service,request);
+        if (request.getPrice() != null) service.setPrice(request.getPrice());
+        if (request.getDurationMinutes() != null) service.setDurationMinutes(request.getDurationMinutes());
+        if (request.getDescription() != null) service.setDescription(request.getDescription());
+        if (request.getStatus() != null) applyStatus(service, request.getStatus());
         service = saveService(service);
         return serviceMapper.toServiceResponse(service);
     }
 
     @Transactional
-    public String deleteService(Long id){
-        com.booking_schedule.examine.entity.Service service = serviceRepository.findById(id)
-                .orElseThrow(()-> new AppException(ErrorCode.SERVICE_NOT_EXISTED));
+    public ServiceDeleteResponse deleteService(Long id){
+        com.booking_schedule.examine.entity.Service service = locked(id);
 
         boolean hasAppointment = appointmentRepository.existsByServiceId(id);
 
@@ -100,14 +106,45 @@ public class ServicesService {
             if(service.getStatus() == EStatus.INACTIVE){
                 throw new AppException(ErrorCode.SERVICE_ALREADY_INACTIVE);
             }
-            service.setStatus(EStatus.INACTIVE);
-            serviceRepository.save(service);
-            return "Dịch vụ đang sử dụng đã được đặt trạng thái vô hiệu hóa.";
+            applyStatus(service, EStatus.INACTIVE);
+            saveService(service);
+            return new ServiceDeleteResponse(id, ServiceDeleteResponse.Action.DEACTIVATED, EStatus.INACTIVE,
+                    "Dịch vụ đã được vô hiệu hóa; giữ nguyên lịch hẹn và giá lịch sử.");
         }
         else{
             serviceRepository.delete(service);
-            return "Dịch vụ đã được xóa thành công.";
+            serviceRepository.flush();
+            return new ServiceDeleteResponse(id, ServiceDeleteResponse.Action.DELETED, null,
+                    "Dịch vụ đã được xóa thành công.");
         }
+    }
+
+    @Transactional
+    public ServiceResponse updateStatus(Long id, EStatus status) {
+        var service = locked(id);
+        applyStatus(service, status);
+        return serviceMapper.toServiceResponse(saveService(service));
+    }
+
+    private void applyStatus(com.booking_schedule.examine.entity.Service service, EStatus status) {
+        if (status == null) throw new AppException(ErrorCode.SERVICE_INVALID_REQUEST);
+        if (status == EStatus.ACTIVE && service.getSpecialty() != null
+                && service.getSpecialty().getStatus() != EStatus.ACTIVE)
+            throw new AppException(ErrorCode.SPECIALTY_INACTIVE);
+        // INACTIVE affects new bookings only. Never cancel or reprice existing appointments here.
+        service.setStatus(status);
+    }
+
+    private com.booking_schedule.examine.entity.Service locked(Long id) {
+        return serviceRepository.findLockedById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.SERVICE_NOT_EXISTED));
+    }
+
+    private String normalizeCode(String code) {
+        String normalized = code.trim().toUpperCase(Locale.ROOT);
+        if (normalized.isBlank() || normalized.length() > 50)
+            throw new AppException(ErrorCode.SERVICE_INVALID_REQUEST);
+        return normalized;
     }
 
     public ServiceResponse getServiceById(Long id) {
@@ -146,12 +183,14 @@ public class ServicesService {
     }
 
     public List<ServiceResponse> getPublicServices(Long specialtyId) {
-        Specification<com.booking_schedule.examine.entity.Service> filter = (root, query, cb) -> cb.and(
-                cb.equal(root.get("status"), EStatus.ACTIVE),
-                cb.equal(root.get("specialty").get("status"), EStatus.ACTIVE));
-        if (specialtyId != null) {
-            filter = filter.and((root, query, cb) -> cb.equal(root.get("specialty").get("id"), specialtyId));
-        }
+        Specification<com.booking_schedule.examine.entity.Service> filter = (root, query, cb) -> {
+            var specialty = root.join("specialty", JoinType.LEFT);
+            var shared = cb.isNull(specialty.get("id"));
+            var eligibleSpecialty = cb.equal(specialty.get("status"), EStatus.ACTIVE);
+            if (specialtyId != null)
+                eligibleSpecialty = cb.and(eligibleSpecialty, cb.equal(specialty.get("id"), specialtyId));
+            return cb.and(cb.equal(root.get("status"), EStatus.ACTIVE), cb.or(shared, eligibleSpecialty));
+        };
         return serviceRepository.findAll(filter, org.springframework.data.domain.Sort.by("id"))
                 .stream().map(serviceMapper::toServiceResponse).toList();
     }
@@ -193,7 +232,7 @@ public class ServicesService {
 
         String finalCode = code;
         int count = 1;
-        while (serviceRepository.existsByCode(finalCode)) {
+        while (serviceRepository.existsByCodeIgnoreCase(finalCode)) {
             String suffix = String.valueOf(count);
             finalCode = code.substring(0, Math.min(code.length(), 50 - suffix.length())) + suffix;
             count++;

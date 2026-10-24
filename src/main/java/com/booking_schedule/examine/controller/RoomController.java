@@ -19,7 +19,14 @@ public class RoomController {
     public ApiResponse<Page<RoomResponse>> search(@Valid @RequestBody RoomSearchRequest request,
             @PageableDefault(sort = "id") Pageable pageable) {
         return ApiResponse.<Page<RoomResponse>>builder()
-                .result(service.search(request.getKeyword(), request.getSpecialtyId(), request.getStatus(), pageable)).build();
+                .result(service.search(request.getKeyword(), request.getSpecialtyId(), request.getStatus(),
+                        request.getSharedOnly(), pageable)).build();
+    }
+
+    @PostMapping("/availability/search")
+    public ApiResponse<Page<RoomResponse>> available(@Valid @RequestBody RoomAvailabilityRequest request,
+            @PageableDefault(sort = "id") Pageable pageable) {
+        return ApiResponse.<Page<RoomResponse>>builder().result(service.availableRooms(request, pageable)).build();
     }
 
     @GetMapping("/{id}")
@@ -42,8 +49,13 @@ public class RoomController {
         return ApiResponse.<RoomResponse>builder().result(service.updateStatus(id, request.getStatus())).build();
     }
 
+    @PatchMapping("/{id}")
+    public ApiResponse<RoomResponse> patch(@PathVariable Long id, @Valid @RequestBody RoomUpdateRequest request) {
+        return ApiResponse.<RoomResponse>builder().result(service.patchRoom(id, request)).build();
+    }
+
     @DeleteMapping("/{id}")
-    public ApiResponse<String> delete(@PathVariable Long id) {
-        return ApiResponse.<String>builder().result(service.deleteRoom(id)).build();
+    public ApiResponse<RoomDeleteResponse> delete(@PathVariable Long id) {
+        return ApiResponse.<RoomDeleteResponse>builder().result(service.deleteRoom(id)).build();
     }
 }

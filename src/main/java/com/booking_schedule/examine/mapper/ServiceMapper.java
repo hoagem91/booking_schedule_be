@@ -19,6 +19,7 @@ public interface ServiceMapper {
     @Mapping(target = "updatedAt", ignore = true)
     Service toService(ServiceRequest request);
     @Mapping(target = "specialtyId", source = "specialty.id")
+    @Mapping(target = "specialtyName", source = "specialty.name")
     ServiceResponse toServiceResponse(Service service);
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "specialty", ignore = true)

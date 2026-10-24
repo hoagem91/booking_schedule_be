@@ -31,7 +31,7 @@ public class AdminAppointmentController {
                         request.getStatus(), request.getFromDate(), request.getToDate(), pageable)).build();
     }
     @PostMapping("/summary")
-    public ApiResponse<AppointmentSummaryResponse> summary(@Valid @RequestBody AppointmentSearchRequest request) {
+    public ApiResponse<AppointmentSummaryResponse> summary(@Valid @RequestBody AppointmentSummaryRequest request) {
         return ApiResponse.<AppointmentSummaryResponse>builder().result(service.summary(request)).build();
     }
 

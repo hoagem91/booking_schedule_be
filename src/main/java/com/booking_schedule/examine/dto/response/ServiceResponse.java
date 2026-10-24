@@ -15,6 +15,7 @@ public class ServiceResponse {
     private String code;
     private String name;
     private Long specialtyId;
+    private String specialtyName;
     private BigDecimal price;
     private Integer durationMinutes;
     private String description;

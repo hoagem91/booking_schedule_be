@@ -1,7 +1,11 @@
 package com.booking_schedule.examine.service;
 
 import com.booking_schedule.examine.dto.request.RoomRequest;
+import com.booking_schedule.examine.dto.request.RoomUpdateRequest;
+import com.booking_schedule.examine.dto.request.RoomAvailabilityRequest;
 import com.booking_schedule.examine.dto.response.RoomResponse;
+import com.booking_schedule.examine.dto.response.RoomDeleteResponse;
+import com.booking_schedule.examine.entity.DoctorSchedule;
 import com.booking_schedule.examine.entity.Room;
 import com.booking_schedule.examine.entity.Specialty;
 import com.booking_schedule.examine.enums.EStatus;
@@ -15,6 +19,7 @@ import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.persistence.criteria.JoinType;
 
 import java.time.LocalDate;
 import java.sql.SQLException;
@@ -46,8 +51,7 @@ public class RoomService {
 
     @Transactional
     public RoomResponse updateStatus(Long id, String status) {
-        if (!Set.of("AVAILABLE", "MAINTENANCE", "INACTIVE").contains(status == null ? "" : status))
-            throw new AppException(ErrorCode.ROOM_INVALID_REQUEST);
+        validateStatus(status);
         Room room = locked(id);
         guardClosure(room, status);
         room.setStatus(status);
@@ -55,17 +59,36 @@ public class RoomService {
     }
 
     @Transactional
-    public String deleteRoom(Long id) {
+    public RoomResponse patchRoom(Long id, RoomUpdateRequest request) {
+        if (!request.isSelectionValid()) throw new AppException(ErrorCode.ROOM_INVALID_REQUEST);
+        Room room = locked(id);
+        Long currentSpecialtyId = room.getSpecialty() == null ? null : room.getSpecialty().getId();
+        RoomRequest effective = RoomRequest.builder()
+                .code(request.getCode() == null ? room.getCode() : request.getCode())
+                .name(request.getName() == null ? room.getName() : request.getName())
+                .location(Boolean.TRUE.equals(request.getClearLocation()) ? null
+                        : request.getLocation() == null ? room.getLocation() : request.getLocation())
+                .specialtyId(Boolean.TRUE.equals(request.getClearSpecialty()) ? null
+                        : request.getSpecialtyId() == null ? currentSpecialtyId : request.getSpecialtyId())
+                .status(request.getStatus() == null ? room.getStatus() : request.getStatus()).build();
+        apply(room, effective, false);
+        return save(room);
+    }
+
+    @Transactional
+    public RoomDeleteResponse deleteRoom(Long id) {
         Room room = locked(id);
         guardClosure(room, "INACTIVE");
         if (schedules.existsByRoomId(id)) {
             room.setStatus("INACTIVE");
             save(room);
-            return "Đã vô hiệu hóa phòng; giữ nguyên lịch sử phân công";
+            return new RoomDeleteResponse(id, RoomDeleteResponse.Action.DEACTIVATED, "INACTIVE",
+                    "Đã vô hiệu hóa phòng; giữ nguyên lịch sử phân công");
         }
         rooms.delete(room);
         rooms.flush();
-        return "Đã xóa phòng chưa có lịch sử phân công";
+        return new RoomDeleteResponse(id, RoomDeleteResponse.Action.DELETED, null,
+                "Đã xóa phòng chưa có lịch sử phân công");
     }
 
     public RoomResponse getRoom(Long id) {
@@ -73,19 +96,78 @@ public class RoomService {
     }
 
     public Page<RoomResponse> search(String keyword, Long specialtyId, String status, Pageable pageable) {
+        return search(keyword, specialtyId, status, null, pageable);
+    }
+
+    public Page<RoomResponse> search(String keyword, Long specialtyId, String status, Boolean sharedOnly, Pageable pageable) {
+        validateSharedSelection(specialtyId, sharedOnly);
         if (status != null) validateStatus(status);
         Specification<Room> filter = filters(keyword, specialtyId, status);
+        if (Boolean.TRUE.equals(sharedOnly)) filter = filter.and((root, query, cb) -> cb.isNull(root.get("specialty")));
         return rooms.findAll(filter, pageable).map(mapper::toResponse);
     }
 
     public List<RoomResponse> publicRooms(Long specialtyId) {
-        if (specialtyId != null) specialties.findById(specialtyId)
-                .orElseThrow(() -> new AppException(ErrorCode.SPECIALTY_NOT_FOUND));
-        return rooms.findAll(filters(null, specialtyId, "AVAILABLE"), Sort.by("code", "id"))
+        if (specialtyId != null) activeSpecialty(specialtyId);
+        return rooms.findAll(eligibleRooms(specialtyId), Sort.by("code", "id"))
                 .stream().map(mapper::toResponse).toList();
     }
 
+    public Page<RoomResponse> availableRooms(RoomAvailabilityRequest request, Pageable pageable) {
+        if (request.getWorkDate() == null || request.getWorkDate().isBefore(LocalDate.now())
+                || request.getStartTime() == null || request.getEndTime() == null || !request.isTimeRangeValid())
+            throw new AppException(ErrorCode.ROOM_INVALID_REQUEST);
+        validateSharedSelection(request.getSpecialtyId(), request.getSharedOnly());
+        if (request.getSpecialtyId() != null) activeSpecialty(request.getSpecialtyId());
+        if (request.getExcludeScheduleId() != null && !schedules.existsById(request.getExcludeScheduleId()))
+            throw new AppException(ErrorCode.SCHEDULE_NOT_FOUND);
+        Specification<Room> spec = eligibleRooms(request.getSpecialtyId())
+                .and(filters(request.getKeyword(), null, null));
+        if (Boolean.TRUE.equals(request.getSharedOnly()))
+            spec = spec.and((root, query, cb) -> cb.isNull(root.get("specialty")));
+        spec = spec.and((root, query, cb) -> {
+            var conflict = query.subquery(Long.class);
+            var schedule = conflict.from(DoctorSchedule.class);
+            var predicate = cb.and(cb.equal(schedule.get("room").get("id"), root.get("id")),
+                    cb.equal(schedule.get("workDate"), request.getWorkDate()),
+                    cb.notEqual(schedule.get("status"), EStatusDoctorSchedule.CANCELLED),
+                    cb.lessThan(schedule.get("startTime"), request.getEndTime()),
+                    cb.greaterThan(schedule.get("endTime"), request.getStartTime()));
+            if (request.getExcludeScheduleId() != null)
+                predicate = cb.and(predicate, cb.notEqual(schedule.get("id"), request.getExcludeScheduleId()));
+            conflict.select(schedule.get("id")).where(predicate);
+            return cb.not(cb.exists(conflict));
+        });
+        return rooms.findAll(spec, pageable).map(mapper::toResponse);
+    }
+
+    private Specification<Room> eligibleRooms(Long specialtyId) {
+        return (root, query, cb) -> {
+            var specialty = root.join("specialty", JoinType.LEFT);
+            var shared = cb.isNull(specialty.get("id"));
+            var eligible = cb.equal(specialty.get("status"), EStatus.ACTIVE);
+            if (specialtyId != null) eligible = cb.and(eligible, cb.equal(specialty.get("id"), specialtyId));
+            return cb.and(cb.equal(root.get("status"), "AVAILABLE"), cb.or(shared, eligible));
+        };
+    }
+
+    private Specialty activeSpecialty(Long id) {
+        Specialty specialty = specialties.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.SPECIALTY_NOT_FOUND));
+        if (specialty.getStatus() != EStatus.ACTIVE) throw new AppException(ErrorCode.SPECIALTY_INACTIVE);
+        return specialty;
+    }
+
+    private void validateSharedSelection(Long specialtyId, Boolean sharedOnly) {
+        if (Boolean.TRUE.equals(sharedOnly) && specialtyId != null)
+            throw new AppException(ErrorCode.ROOM_INVALID_REQUEST);
+    }
+
     private void apply(Room room, RoomRequest request) {
+        apply(room, request, true);
+    }
+
+    private void apply(Room room, RoomRequest request, boolean validateUnchangedSpecialty) {
         if (request.getCode() == null || request.getCode().isBlank() || request.getCode().length() > 50
                 || request.getName() == null || request.getName().isBlank() || request.getName().length() > 255
                 || (request.getLocation() != null && request.getLocation().length() > 255))
@@ -97,10 +179,15 @@ public class RoomService {
         if (duplicate) throw new AppException(ErrorCode.ROOM_CODE_EXISTS);
         Specialty specialty = null;
         if (request.getSpecialtyId() != null) {
-            specialty = specialties.findById(request.getSpecialtyId())
-                    .orElseThrow(() -> new AppException(ErrorCode.SPECIALTY_NOT_FOUND));
-            if (specialty.getStatus() != EStatus.ACTIVE) throw new AppException(ErrorCode.SPECIALTY_INACTIVE);
+            specialty = !validateUnchangedSpecialty && room.getSpecialty() != null
+                    && request.getSpecialtyId().equals(room.getSpecialty().getId())
+                    ? room.getSpecialty() : activeSpecialty(request.getSpecialtyId());
         }
+        Long currentSpecialtyId = room.getSpecialty() == null ? null : room.getSpecialty().getId();
+        if (room.getId() != null && !Objects.equals(currentSpecialtyId, request.getSpecialtyId())
+                && schedules.existsByRoomIdAndWorkDateGreaterThanEqualAndStatusIn(room.getId(), LocalDate.now(),
+                        List.of(EStatusDoctorSchedule.OPEN, EStatusDoctorSchedule.FULL, EStatusDoctorSchedule.CLOSED)))
+            throw new AppException(ErrorCode.ROOM_SPECIALTY_CHANGE_NOT_ALLOWED);
         String status = request.getStatus() == null
                 ? (room.getId() == null ? "AVAILABLE" : room.getStatus()) : request.getStatus();
         validateStatus(status);
@@ -114,9 +201,13 @@ public class RoomService {
 
     private void guardClosure(Room room, String status) {
         if (room.getId() != null && ("MAINTENANCE".equals(status) || "INACTIVE".equals(status))
-                && schedules.existsByRoomIdAndWorkDateGreaterThanEqualAndStatusIn(room.getId(), LocalDate.now(),
-                List.of(EStatusDoctorSchedule.OPEN, EStatusDoctorSchedule.FULL)))
+                && hasFutureSchedules(room.getId()))
             throw new AppException(ErrorCode.ROOM_HAS_FUTURE_SCHEDULES);
+    }
+
+    private boolean hasFutureSchedules(Long roomId) {
+        return schedules.existsByRoomIdAndWorkDateGreaterThanEqualAndStatusIn(roomId, LocalDate.now(),
+                List.of(EStatusDoctorSchedule.OPEN, EStatusDoctorSchedule.FULL));
     }
 
     private void validateStatus(String status) {
@@ -151,7 +242,8 @@ public class RoomService {
                 String value = "%" + keyword.trim().toLowerCase(Locale.ROOT)
                         .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
                 predicates.add(cb.or(cb.like(cb.lower(root.get("code")), value, '\\'),
-                        cb.like(cb.lower(root.get("name")), value, '\\')));
+                        cb.like(cb.lower(root.get("name")), value, '\\'),
+                        cb.like(cb.lower(root.get("location")), value, '\\')));
             }
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };

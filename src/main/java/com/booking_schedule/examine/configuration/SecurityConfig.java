@@ -26,8 +26,17 @@ public class SecurityConfig {
         httpSecurity.authorizeHttpRequests(request -> request
                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
                 .requestMatchers("/users/me").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/public/specialties").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/admin/specialties", "/api/admin/specialties/**",
+                        "/admin/specialties", "/admin/specialties/**")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
+                .requestMatchers(HttpMethod.POST, "/api/admin/specialties/search", "/admin/specialties/search")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
+                .requestMatchers("/api/admin/specialties", "/api/admin/specialties/**",
+                        "/admin/specialties", "/admin/specialties/**")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/public/rooms", "/api/public/specialties/*/rooms").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/admin/rooms/search")
+                .requestMatchers(HttpMethod.POST, "/api/admin/rooms/search", "/api/admin/rooms/availability/search")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
                 .requestMatchers(HttpMethod.GET, "/api/admin/rooms", "/api/admin/rooms/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
@@ -49,7 +58,12 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/doctor-schedules", "/api/admin/doctor-schedules/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/public/doctor-schedules/search").permitAll()
-                .requestMatchers("/api/admin/services", "/api/admin/services/**")
+                .requestMatchers(HttpMethod.GET, "/api/admin/services", "/api/admin/services/**",
+                        "/admin/services", "/admin/services/**")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
+                .requestMatchers(HttpMethod.POST, "/api/admin/services/search", "/admin/services/search")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
+                .requestMatchers("/api/admin/services", "/api/admin/services/**", "/admin/services", "/admin/services/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/public/services", "/api/public/services/**").permitAll()
                 .anyRequest()
