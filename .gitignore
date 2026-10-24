@@ -56,3 +56,4 @@ application-prod.yml
 
 # Ignore all Markdown files
 *.md
+!APPOINTMENT_SUMMARY.md
