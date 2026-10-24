@@ -2,6 +2,8 @@ package com.booking_schedule.examine.service;
 
 import com.booking_schedule.examine.dto.request.AppointmentCreateRequest;
 import com.booking_schedule.examine.dto.response.AppointmentResponse;
+import com.booking_schedule.examine.dto.response.AppointmentSummaryResponse;
+import com.booking_schedule.examine.dto.request.AppointmentSearchRequest;
 import com.booking_schedule.examine.entity.*;
 import com.booking_schedule.examine.enums.*;
 import com.booking_schedule.examine.exception.*;
@@ -14,6 +16,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.math.*;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
@@ -27,6 +30,7 @@ public class AppointmentService {
     private static final List<EAppointmentStatus> ACTIVE = List.of(EAppointmentStatus.PENDING,
             EAppointmentStatus.CONFIRMED, EAppointmentStatus.IN_PROGRESS);
     private final AppointmentRepository appointments;
+    private final AppointmentSummaryRepository appointmentSummary;
     private final PatientRepository patients;
     private final UserRepository users;
     private final ServiceRepository services;
@@ -127,9 +131,10 @@ public class AppointmentService {
 
     public Patient currentPatient() {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) throw new AppException(ErrorCode.UNAUTHENTICATED);
+        if (authentication == null || !authentication.isAuthenticated())
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
         User user = users.findByUsername(authentication.getName()).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-        log.info("Username:{}",user.getUsername());
+        log.info("Username:{}", user.getUsername());
         return patients.findByUserId(user.getId()).orElseThrow(() -> new AppException(ErrorCode.PATIENT_NOT_FOUND));
     }
 
@@ -139,28 +144,62 @@ public class AppointmentService {
         return response(appointment);
     }
 
-    public AppointmentResponse get(Long id) { return response(find(id)); }
+    public AppointmentResponse get(Long id) {
+        return response(find(id));
+    }
 
     public Page<AppointmentResponse> history(Pageable pageable) {
         return search(null, null, currentPatient().getId(), null, null, null, pageable);
     }
 
     public Page<AppointmentResponse> search(String keyword, Long doctorId, Long patientId, EAppointmentStatus status,
-            LocalDate fromDate, LocalDate toDate, Pageable pageable) {
+                                            LocalDate fromDate, LocalDate toDate, Pageable pageable) {
+        return appointments.findAll(searchSpecification(keyword, doctorId, patientId, status, fromDate, toDate), pageable)
+                .map(this::response);
+    }
+
+    public AppointmentSummaryResponse summary(AppointmentSearchRequest request) {
+        var spec = searchSpecification(request.getKeyword(), request.getDoctorId(), request.getPatientId(),
+                request.getStatus(), request.getFromDate(), request.getToDate());
+        Map<Long, Map<EAppointmentStatus, Long>> counts = new HashMap<>();
+        Map<EAppointmentStatus, Long> statusCounts = emptyStatusCounts();
+        for (var row : appointmentSummary.countByDoctorAndStatus(spec)) {
+            counts.computeIfAbsent(row.doctorId(), id -> emptyStatusCounts()).put(row.status(), row.count());
+            statusCounts.merge(row.status(), row.count(), Long::sum);
+        }
+        var doctors = appointmentSummary.findDoctors(request.getDoctorId()).stream().map(doctor -> {
+            var doctorCounts = counts.getOrDefault(doctor.doctorId(), emptyStatusCounts());
+            long total = doctorCounts.values().stream().mapToLong(Long::longValue).sum();
+            return new AppointmentSummaryResponse.DoctorSummary(doctor.doctorId(), doctor.doctorCode(),
+                    doctor.doctorName(), total, doctorCounts);
+        }).toList();
+        return new AppointmentSummaryResponse(statusCounts.values().stream().mapToLong(Long::longValue).sum(),
+                statusCounts, doctors);
+    }
+
+    private Map<EAppointmentStatus, Long> emptyStatusCounts() {
+        Map<EAppointmentStatus, Long> counts = new EnumMap<>(EAppointmentStatus.class);
+        for (var status : EAppointmentStatus.values()) counts.put(status, 0L);
+        return counts;
+    }
+
+    private Specification<Appointment> searchSpecification(String keyword, Long doctorId, Long patientId,
+                                                           EAppointmentStatus status, LocalDate fromDate, LocalDate toDate) {
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate))
             throw new AppException(ErrorCode.APPOINTMENT_INVALID_REQUEST);
         Specification<Appointment> spec = (root, query, cb) -> cb.conjunction();
         if (doctorId != null) spec = spec.and((r, q, cb) -> cb.equal(r.get("doctor").get("id"), doctorId));
         if (patientId != null) spec = spec.and((r, q, cb) -> cb.equal(r.get("patient").get("id"), patientId));
         if (status != null) spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), status));
-        if (fromDate != null) spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("appointmentDate"), fromDate));
+        if (fromDate != null)
+            spec = spec.and((r, q, cb) -> cb.greaterThanOrEqualTo(r.get("appointmentDate"), fromDate));
         if (toDate != null) spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("appointmentDate"), toDate));
         if (keyword != null && !keyword.isBlank()) {
             String pattern = "%" + keyword.trim().toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
             spec = spec.and((r, q, cb) -> cb.or(cb.like(cb.lower(r.get("appointmentCode")), pattern, '\\'),
                     cb.like(cb.lower(r.get("patient").get("user").get("fullName")), pattern, '\\')));
         }
-        return appointments.findAll(spec, pageable).map(this::response);
+        return spec;
     }
 
     @Transactional
@@ -218,10 +257,14 @@ public class AppointmentService {
             long hours = Long.parseLong(value.trim());
             if (hours < 0 || hours > 876000) throw new NumberFormatException();
             return hours;
-        } catch (NumberFormatException ex) { throw new AppException(ErrorCode.APPOINTMENT_INVALID_SETTING); }
+        } catch (NumberFormatException ex) {
+            throw new AppException(ErrorCode.APPOINTMENT_INVALID_SETTING);
+        }
     }
 
-    /** Parent first to serialize with schedule cancellation, then the appointment. */
+    /**
+     * Parent first to serialize with schedule cancellation, then the appointment.
+     */
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public Appointment lock(Long id) {
         Long scheduleId = appointments.findScheduleIdByAppointmentId(id).orElseThrow(() -> new AppException(ErrorCode.APPOINTMENT_NOT_FOUND));
@@ -231,7 +274,8 @@ public class AppointmentService {
     }
 
     public void requireOwner(Appointment appointment) {
-        if (!appointment.getPatient().getId().equals(currentPatient().getId())) throw new AppException(ErrorCode.UNAUTHORIZED);
+        if (!appointment.getPatient().getId().equals(currentPatient().getId()))
+            throw new AppException(ErrorCode.UNAUTHORIZED);
     }
 
     private Appointment find(Long id) {

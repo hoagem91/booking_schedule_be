@@ -30,6 +30,11 @@ public class AdminAppointmentController {
                 .result(service.search(request.getKeyword(), request.getDoctorId(), request.getPatientId(),
                         request.getStatus(), request.getFromDate(), request.getToDate(), pageable)).build();
     }
+    @PostMapping("/summary")
+    public ApiResponse<AppointmentSummaryResponse> summary(@Valid @RequestBody AppointmentSearchRequest request) {
+        return ApiResponse.<AppointmentSummaryResponse>builder().result(service.summary(request)).build();
+    }
+
     @PatchMapping("/{id}/confirm")
     public ApiResponse<AppointmentResponse> confirm(@PathVariable Long id, @Valid @RequestBody(required = false) AppointmentActionRequest request) {
         return action(id, EAppointmentStatus.CONFIRMED, request);
