@@ -3,6 +3,8 @@ package com.booking_schedule.examine.controller;
 import com.booking_schedule.examine.dto.request.ServiceRequest;
 import com.booking_schedule.examine.dto.request.ServiceSearchRequest;
 import com.booking_schedule.examine.dto.request.ServiceUpdateRequest;
+import com.booking_schedule.examine.dto.request.ServiceStatusRequest;
+import com.booking_schedule.examine.dto.response.ServiceDeleteResponse;
 import com.booking_schedule.examine.dto.response.ApiResponse;
 import com.booking_schedule.examine.dto.response.ServiceResponse;
 import com.booking_schedule.examine.service.ServicesService;
@@ -18,7 +20,7 @@ import org.springframework.data.web.PageableDefault;
 
 
 @RestController
-@RequestMapping("/admin/services")
+@RequestMapping({"/api/admin/services", "/admin/services"})
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Slf4j
@@ -40,10 +42,16 @@ public class ServiceController {
     }
 
     @DeleteMapping("/{id}")
-    ApiResponse<String> deleteService(@PathVariable Long id){
-        return ApiResponse.<String>builder()
+    ApiResponse<ServiceDeleteResponse> deleteService(@PathVariable Long id){
+        return ApiResponse.<ServiceDeleteResponse>builder()
                 .result(servicesService.deleteService(id))
                 .build();
+    }
+
+    @PatchMapping("/{id}/status")
+    ApiResponse<ServiceResponse> updateStatus(@PathVariable Long id, @Valid @RequestBody ServiceStatusRequest request) {
+        return ApiResponse.<ServiceResponse>builder()
+                .result(servicesService.updateStatus(id, request.getStatus())).build();
     }
 
     @PostMapping("/search")

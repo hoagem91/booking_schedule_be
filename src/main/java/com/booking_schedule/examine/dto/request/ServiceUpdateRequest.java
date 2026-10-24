@@ -23,6 +23,13 @@ public class ServiceUpdateRequest {
     @Positive(message = "ID chuyên khoa phải lớn hơn 0")
     private Long specialtyId;
 
+    private Boolean clearSpecialty;
+
+    @AssertTrue(message = "SERVICE_INVALID_REQUEST")
+    public boolean isSpecialtySelectionValid() {
+        return !Boolean.TRUE.equals(clearSpecialty) || specialtyId == null;
+    }
+
     @PositiveOrZero(message = "Giá dịch vụ phải lớn hơn hoặc bằng 0")
     @Digits(integer = 13, fraction = 2, message = "Giá dịch vụ tối đa 13 chữ số nguyên và 2 chữ số thập phân")
     private BigDecimal price;

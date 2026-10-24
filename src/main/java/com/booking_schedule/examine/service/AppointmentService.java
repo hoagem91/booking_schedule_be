@@ -3,7 +3,7 @@ package com.booking_schedule.examine.service;
 import com.booking_schedule.examine.dto.request.AppointmentCreateRequest;
 import com.booking_schedule.examine.dto.response.AppointmentResponse;
 import com.booking_schedule.examine.dto.response.AppointmentSummaryResponse;
-import com.booking_schedule.examine.dto.request.AppointmentSearchRequest;
+import com.booking_schedule.examine.dto.request.AppointmentSummaryRequest;
 import com.booking_schedule.examine.entity.*;
 import com.booking_schedule.examine.enums.*;
 import com.booking_schedule.examine.exception.*;
@@ -81,7 +81,7 @@ public class AppointmentService {
         if (doctor.getUser() == null || !"ACTIVE".equals(doctor.getUser().getStatus()))
             throw new AppException(ErrorCode.DOCTOR_INACTIVE);
         if (doctor.getSpecialty().getStatus() != EStatus.ACTIVE) throw new AppException(ErrorCode.SPECIALTY_INACTIVE);
-        com.booking_schedule.examine.entity.Service service = services.findById(request.getServiceId())
+        com.booking_schedule.examine.entity.Service service = services.findLockedById(request.getServiceId())
                 .orElseThrow(() -> new AppException(ErrorCode.SERVICE_NOT_EXISTED));
         if (service.getStatus() != EStatus.ACTIVE) throw new AppException(ErrorCode.SERVICE_INACTIVE);
         // Services without a specialty are available to all specialties.
@@ -158,16 +158,16 @@ public class AppointmentService {
                 .map(this::response);
     }
 
-    public AppointmentSummaryResponse summary(AppointmentSearchRequest request) {
+    public AppointmentSummaryResponse summary(AppointmentSummaryRequest request) {
         var spec = searchSpecification(request.getKeyword(), request.getDoctorId(), request.getPatientId(),
                 request.getStatus(), request.getFromDate(), request.getToDate());
         Map<Long, Map<EAppointmentStatus, Long>> counts = new HashMap<>();
         Map<EAppointmentStatus, Long> statusCounts = emptyStatusCounts();
-        for (var row : appointmentSummary.countByDoctorAndStatus(spec)) {
+        for (var row : appointmentSummary.countByDoctorAndStatus(spec, request.getDoctorKeyword())) {
             counts.computeIfAbsent(row.doctorId(), id -> emptyStatusCounts()).put(row.status(), row.count());
             statusCounts.merge(row.status(), row.count(), Long::sum);
         }
-        var doctors = appointmentSummary.findDoctors(request.getDoctorId()).stream().map(doctor -> {
+        var doctors = appointmentSummary.findDoctors(request.getDoctorId(), request.getDoctorKeyword()).stream().map(doctor -> {
             var doctorCounts = counts.getOrDefault(doctor.doctorId(), emptyStatusCounts());
             long total = doctorCounts.values().stream().mapToLong(Long::longValue).sum();
             return new AppointmentSummaryResponse.DoctorSummary(doctor.doctorId(), doctor.doctorCode(),

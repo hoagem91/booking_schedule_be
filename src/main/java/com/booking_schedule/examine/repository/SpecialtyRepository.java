@@ -9,7 +9,13 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface SpecialtyRepository extends JpaRepository<Specialty, Long> {
+public interface SpecialtyRepository extends JpaRepository<Specialty, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Specialty> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select s from Specialty s where s.id = :id")
+    Optional<Specialty> findLockedById(@org.springframework.data.repository.query.Param("id") Long id);
+
+    boolean existsByCodeIgnoreCase(String code);
+    boolean existsByCodeIgnoreCaseAndIdNot(String code, Long id);
     Optional<Specialty> findByCode(String code);
 
     // Kiểm tra mã chuyên khoa đã tồn tại chưa (dùng khi create)

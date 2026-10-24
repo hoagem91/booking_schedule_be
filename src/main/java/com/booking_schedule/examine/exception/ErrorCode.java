@@ -37,6 +37,8 @@ public enum ErrorCode {
     SPECIALTY_ALREADY_INACTIVE(3005, "Specialty is already inactive", HttpStatus.BAD_REQUEST),
     SPECIALTY_CODE_EXISTED(3006, "Specialty code already exists", HttpStatus.BAD_REQUEST),
     SPECIALTY_NAME_EXISTED(3007, "Specialty name already exists (case-insensitive)", HttpStatus.BAD_REQUEST),
+    SPECIALTY_HAS_FUTURE_SCHEDULES(3008, "Cancel or move OPEN/FULL schedules from today onward before deactivating the specialty", HttpStatus.CONFLICT),
+    SPECIALTY_INVALID_REQUEST(3009, "Invalid specialty data or status", HttpStatus.BAD_REQUEST),
 
     //    Doctor
     DOCTOR_ALREADY_EXISTS(4001, "Doctor profile already exists for this user", HttpStatus.BAD_REQUEST),
@@ -54,6 +56,7 @@ public enum ErrorCode {
 
     // Doctor-schedule
     SERVICE_ALREADY_INACTIVE(5005, "Service is already inactive", HttpStatus.BAD_REQUEST),
+    SERVICE_INVALID_REQUEST(5006, "Invalid service data or status", HttpStatus.BAD_REQUEST),
     DOCTOR_INACTIVE(6001, "Doctor is not active", HttpStatus.BAD_REQUEST),
     ROOM_NOT_FOUND(6002, "Room not found", HttpStatus.NOT_FOUND),
     ROOM_UNAVAILABLE(6003, "Room is not available", HttpStatus.BAD_REQUEST),
@@ -87,6 +90,7 @@ public enum ErrorCode {
     ROOM_CODE_EXISTS(9001, "Room code already exists", HttpStatus.CONFLICT),
     ROOM_INVALID_REQUEST(9002, "Invalid room data or status", HttpStatus.BAD_REQUEST),
     ROOM_HAS_FUTURE_SCHEDULES(9003, "Cancel or move OPEN/FULL schedules from today onward before closing the room", HttpStatus.CONFLICT),
+    ROOM_SPECIALTY_CHANGE_NOT_ALLOWED(9004, "Cancel or move non-cancelled schedules from today onward before changing the room specialty", HttpStatus.CONFLICT),
     ;
 
     ErrorCode(int code, String message, HttpStatusCode statusCode) {

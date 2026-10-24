@@ -45,8 +45,8 @@ public class DoctorController {
      */
     @GetMapping
     public ApiResponse<List<DoctorResponse>> getAllDoctors(
-            @RequestBody @Valid Long specialtyId,
-            @RequestBody @Valid EStatus status) {
+            @RequestParam(required = false ) Long specialtyId,
+            @RequestParam(required = false) EStatus status) {
         return ApiResponse.<List<DoctorResponse>>builder()
                 .result(doctorService.getAllDoctors(specialtyId, status))
                 .build();

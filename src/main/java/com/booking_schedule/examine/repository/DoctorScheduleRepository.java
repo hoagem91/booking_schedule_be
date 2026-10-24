@@ -23,6 +23,11 @@ public interface DoctorScheduleRepository extends JpaRepository<DoctorSchedule, 
     List<DoctorSchedule> findByDoctorIdAndWorkDate(Long doctorId, LocalDate workDate);
     boolean existsByDoctorId(Long doctorId);
     boolean existsByRoomId(Long roomId);
+    @Query("select (count(s) > 0) from DoctorSchedule s left join s.room r "
+            + "where s.workDate >= :date and s.status in :statuses "
+            + "and (s.doctor.specialty.id = :specialtyId or r.specialty.id = :specialtyId)")
+    boolean existsActiveSchedulesForSpecialty(@Param("specialtyId") Long specialtyId,
+            @Param("date") LocalDate date, @Param("statuses") List<EStatusDoctorSchedule> statuses);
     boolean existsByRoomIdAndWorkDateGreaterThanEqualAndStatusIn(Long roomId, LocalDate date,
                                                                List<EStatusDoctorSchedule> statuses);
 
