@@ -11,6 +11,10 @@ import java.util.Set;
 @AllArgsConstructor
 @Builder
 public class CreateUserRequest {
+    public void setUsername(String value) { this.username = value == null ? null : value.trim().toLowerCase(java.util.Locale.ROOT); }
+    public void setEmail(String value) { this.email = value == null ? null : value.trim().toLowerCase(java.util.Locale.ROOT); }
+    public void setFullName(String value) { this.fullName = value == null ? null : value.trim(); }
+    public void setPhone(String value) { this.phone = value == null ? null : value.trim(); }
     @NotBlank(message = "Tên đăng nhập không được để trống")
     @Size(min = 4, max = 100, message = "Tên đăng nhập phải từ 4 đến 100 ký tự")
     @Pattern(regexp = "^[a-zA-Z0-9_.]+$", message = "Tên đăng nhập chỉ chứa chữ cái, số, dấu gạch dưới hoặc dấu chấm")

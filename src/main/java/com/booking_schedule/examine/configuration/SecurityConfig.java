@@ -25,7 +25,7 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity.authorizeHttpRequests(request -> request
                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
-                .requestMatchers("/users/me").authenticated()
+                .requestMatchers("/users/me", "/users/me/password").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/public/specialties").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/admin/specialties", "/api/admin/specialties/**",
                         "/admin/specialties", "/admin/specialties/**")
@@ -42,11 +42,13 @@ public class SecurityConfig {
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
                 .requestMatchers("/api/admin/rooms", "/api/admin/rooms/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
-                .requestMatchers("/users", "/users/**", "/api/admin/doctors", "/api/admin/doctors/**")
+                .requestMatchers("/users", "/users/**", "/api/admin/users", "/api/admin/users/**", "/api/admin/roles",
+                        "/api/admin/doctors", "/api/admin/doctors/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/patients").hasAnyAuthority("SCOPE_PATIENT", "SCOPE_DOCTOR")
                 .requestMatchers("/patients/me").hasAuthority("SCOPE_PATIENT")
-                .requestMatchers("/patients", "/patients/**").hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
+                .requestMatchers("/patients", "/patients/**", "/api/admin/patients", "/api/admin/patients/**")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
                 .requestMatchers("/api/admin/appointments", "/api/admin/appointments/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN", "SCOPE_STAFF")
                 .requestMatchers("/api/patient/appointments", "/api/patient/appointments/**")

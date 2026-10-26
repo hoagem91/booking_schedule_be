@@ -13,6 +13,9 @@ import org.mapstruct.NullValuePropertyMappingStrategy;
 public interface UserMapper {
     User toUser(CreateUserRequest request);
 
+    @Mapping(target = "doctorId", source = "doctor.id")
+    @Mapping(target = "patientId", source = "patient.id")
+    @Mapping(target = "capabilities", ignore = true)
     UserResponse toUserResponse(User user);
 
     @Mapping(target = "roles",ignore = true)

@@ -19,6 +19,11 @@ public class UserResponse {
     private String phone;
     private String status;
     private Set<RoleResponse> roles;
+    private Long doctorId;
+    private Long patientId;
+    private Capabilities capabilities;
+    public record Capabilities(boolean self, boolean lastActiveSuperAdmin, boolean canEdit,
+            boolean canChangeStatus, boolean canChangeRoles, boolean canResetPassword, boolean canDeactivate) {}
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
