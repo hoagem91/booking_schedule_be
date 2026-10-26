@@ -62,3 +62,4 @@ application-prod.yml
 !ADMIN_ROOM_API.md
 !ADMIN_USER_API.md
 !ADMIN_PATIENT_API.md
+!ADMIN_DOCTOR_API.md
