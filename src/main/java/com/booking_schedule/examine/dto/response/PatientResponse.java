@@ -20,6 +20,10 @@ public class PatientResponse {
     private String fullName;
     private String email;
     private String phone;
+    private String userStatus;
+    private Capabilities capabilities;
+    public record Capabilities(boolean canEditProfile, boolean canEditAccount,
+            boolean canDeactivateAccount, boolean canDeleteProfile) {}
 
     // Thông tin chi tiết của Patient
     private LocalDate dateOfBirth;

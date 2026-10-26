@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.AssertTrue;
 import lombok.*;
 
 import java.time.LocalDate;
@@ -16,6 +17,15 @@ import java.time.LocalDate;
 @AllArgsConstructor
 @Builder
 public class PatientUpdateRequest {
+    public void setAddress(String value) { address = value == null ? null : value.trim(); }
+    public void setHealthInsuranceCode(String value) { healthInsuranceCode = value == null ? null : value.trim(); }
+    private Boolean clearAddress;
+    private Boolean clearHealthInsuranceCode;
+    @AssertTrue(message = "PATIENT_INVALID_REQUEST")
+    public boolean isClearSelectionValid() {
+        return (!Boolean.TRUE.equals(clearAddress) || address == null)
+                && (!Boolean.TRUE.equals(clearHealthInsuranceCode) || healthInsuranceCode == null);
+    }
     @PastOrPresent(message = "Ngày sinh không được ở tương lai")
     private LocalDate dateOfBirth;
 

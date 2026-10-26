@@ -10,6 +10,8 @@ import java.time.LocalDate;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RegisterRequest extends CreateUserRequest {
+    public void setAddress(String value) { address = value == null ? null : value.trim(); }
+    public void setHealthInsuranceCode(String value) { healthInsuranceCode = value == null ? null : value.trim(); }
     @NotNull(message = "Ngày sinh không được để trống")
     @PastOrPresent(message = "Ngày sinh không được ở tương lai")
     private LocalDate dateOfBirth;

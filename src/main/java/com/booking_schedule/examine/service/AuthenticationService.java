@@ -44,21 +44,22 @@ public class AuthenticationService {
     InvalidatedTokenRepository invalidatedTokenRepository;
     com.booking_schedule.examine.repository.PatientRepository patientRepository;
     com.booking_schedule.examine.repository.RoleRepository roleRepository;
+    com.booking_schedule.examine.repository.PatientAuditRepository patientAudits;
 
     @org.springframework.transaction.annotation.Transactional
     public AuthenticationResponse registerPatient(com.booking_schedule.examine.dto.request.RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername()) || userRepository.existsByEmail(request.getEmail())) {
-            throw new AppException(ErrorCode.USER_EXISTED);
-        }
+        UserIdentitySupport.checkAvailable(userRepository, null, UserIdentitySupport.username(request.getUsername()),
+                UserIdentitySupport.email(request.getEmail()));
         var role = roleRepository.findByName(com.booking_schedule.examine.enums.ERole.PATIENT)
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_ROLE));
-        User user = User.builder().username(request.getUsername()).password(passwordEncoder.encode(request.getPassword()))
-                .fullName(request.getFullName()).email(request.getEmail()).phone(request.getPhone())
+        User user = User.builder().username(UserIdentitySupport.username(request.getUsername())).password(passwordEncoder.encode(request.getPassword()))
+                .fullName(UserIdentitySupport.text(request.getFullName())).email(UserIdentitySupport.email(request.getEmail()))
+                .phone(UserIdentitySupport.text(request.getPhone()))
                 .roles(new java.util.HashSet<>(java.util.Set.of(role))).build();
         try {
             userRepository.saveAndFlush(user);
         } catch (org.springframework.dao.DataIntegrityViolationException ex) {
-            throw new AppException(ErrorCode.USER_EXISTED);
+            throw UserIdentitySupport.conflict(ex);
         }
         var patient = com.booking_schedule.examine.entity.Patient.builder().user(user)
                 .patientCode(ProfileCodeGenerator.generate("BN")).dateOfBirth(request.getDateOfBirth())
@@ -66,6 +67,9 @@ public class AuthenticationService {
                 .healthInsuranceCode(request.getHealthInsuranceCode()).build();
         patientRepository.saveAndFlush(patient);
         user.setPatient(patient);
+        patientAudits.save(com.booking_schedule.examine.entity.PatientAudit.builder().actorUserId(user.getId())
+                .patientId(patient.getId()).action("SELF_REGISTER")
+                .changedFields("address,dateOfBirth,email,fullName,gender,healthInsuranceCode,phone").build());
         return authenticationResponse(user);
     }
 
@@ -91,7 +95,7 @@ public class AuthenticationService {
     // ======================== LOGIN ========================
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public AuthenticationResponse authenticate(AuthenticationRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
+        User user = userRepository.findByUsernameIgnoreCase(UserIdentitySupport.username(request.getUsername()))
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
         boolean passwordMatched = passwordEncoder.matches(request.getPassword(), user.getPassword());

@@ -21,6 +21,15 @@ public enum ErrorCode {
     INVALID_ROLE(1011, "Invalid Role", HttpStatus.BAD_REQUEST),
     USER_INACTIVE(1012, "User account is inactive", HttpStatus.FORBIDDEN),
     ROLE_PROFILE_CONFLICT(1013, "Roles must match existing patient and doctor profiles", HttpStatus.CONFLICT),
+    USER_SELF_DEACTIVATION_NOT_ALLOWED(1014, "You cannot deactivate your own account", HttpStatus.CONFLICT),
+    USER_LAST_SUPER_ADMIN(1015, "The last active SUPER_ADMIN must remain active and retain its role", HttpStatus.CONFLICT),
+    USER_SELF_ROLE_CHANGE_NOT_ALLOWED(1016, "You cannot remove all administrative roles from your own account", HttpStatus.CONFLICT),
+    USER_CURRENT_PASSWORD_REQUIRED(1017, "Current password is required", HttpStatus.BAD_REQUEST),
+    USER_CURRENT_PASSWORD_INVALID(1018, "Current password is incorrect", HttpStatus.BAD_REQUEST),
+    USERNAME_EXISTED(1019, "Username already exists", HttpStatus.CONFLICT),
+    USER_EMAIL_EXISTED(1020, "Email already exists", HttpStatus.CONFLICT),
+    USER_INVALID_REQUEST(1021, "Invalid user data or status", HttpStatus.BAD_REQUEST),
+    USER_SELF_PASSWORD_RESET_NOT_ALLOWED(1022, "Use the personal change-password endpoint for your own password", HttpStatus.CONFLICT),
     PATIENT_DELETE_NOT_ALLOWED(2005, "Patient profiles are retained; deactivate the user account instead", HttpStatus.CONFLICT),
 
     //    Patient
@@ -28,6 +37,7 @@ public enum ErrorCode {
     USER_IS_NOT_PATIENT(2002, "User does not have PATIENT role", HttpStatus.FORBIDDEN),
     PATIENT_NOT_FOUND(2003, "Patient not found", HttpStatus.NOT_FOUND),
     PATIENT_CODE_EXISTS(2004, "Patient code already exists", HttpStatus.BAD_REQUEST),
+    PATIENT_INVALID_REQUEST(2006, "Invalid patient data or account selection", HttpStatus.BAD_REQUEST),
 
     //    Specialty
     SPECIALTY_NOT_FOUND(3001, "Specialty not found", HttpStatus.NOT_FOUND),

@@ -10,7 +10,12 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface PatientRepository extends JpaRepository<Patient, Long> {
+public interface PatientRepository extends JpaRepository<Patient, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Patient> {
+    @Query("select p.user.id from Patient p where p.id = :id")
+    Optional<Long> findUserIdByPatientId(@Param("id") Long id);
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Patient p where p.user.id = :userId")
+    Optional<Patient> findLockedByUserId(@Param("userId") Long userId);
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Patient p where p.id = :id")
     Optional<Patient> findLockedById(@Param("id") Long id);
