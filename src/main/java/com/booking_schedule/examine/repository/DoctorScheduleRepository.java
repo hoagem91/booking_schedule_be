@@ -16,6 +16,14 @@ import java.util.Optional;
 
 @Repository
 public interface DoctorScheduleRepository extends JpaRepository<DoctorSchedule, Long>, JpaSpecificationExecutor<DoctorSchedule> {
+    @Query("select s.doctor.id from DoctorSchedule s where s.id = :id")
+    Optional<Long> findDoctorIdByScheduleId(@Param("id") Long id);
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from DoctorSchedule s where s.doctor.id = :doctorId "
+            + "and (s.workDate > :date or (s.workDate = :date and s.endTime > :time)) "
+            + "and s.status in :statuses order by s.id")
+    List<DoctorSchedule> findLockedUnfinished(@Param("doctorId") Long doctorId, @Param("date") LocalDate date,
+            @Param("time") LocalTime time, @Param("statuses") List<EStatusDoctorSchedule> statuses);
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from DoctorSchedule s where s.id = :id")
     Optional<DoctorSchedule> findLockedById(@Param("id") Long id);

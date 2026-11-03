@@ -9,7 +9,14 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface DoctorRepository extends JpaRepository<Doctor, Long> {
+public interface DoctorRepository extends JpaRepository<Doctor, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Doctor> {
+    @org.springframework.data.jpa.repository.Query("select d.user.id from Doctor d where d.id = :id")
+    Optional<Long> findUserIdByDoctorId(@org.springframework.data.repository.query.Param("id") Long id);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select d from Doctor d where d.user.id = :id")
+    Optional<Doctor> findLockedByUserId(@org.springframework.data.repository.query.Param("id") Long id);
+    boolean existsByDoctorCodeIgnoreCaseAndIdNot(String code, Long id);
+    boolean existsByDoctorCodeIgnoreCase(String code);
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @org.springframework.data.jpa.repository.Query("select d from Doctor d where d.id = :id")
     Optional<Doctor> findLockedById(@org.springframework.data.repository.query.Param("id") Long id);

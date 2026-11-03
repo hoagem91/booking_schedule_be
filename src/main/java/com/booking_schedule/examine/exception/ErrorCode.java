@@ -51,6 +51,10 @@ public enum ErrorCode {
     SPECIALTY_INVALID_REQUEST(3009, "Invalid specialty data or status", HttpStatus.BAD_REQUEST),
 
     //    Doctor
+    DOCTOR_CODE_EXISTS(4007, "Doctor code already exists", HttpStatus.CONFLICT),
+    DOCTOR_INVALID_REQUEST(4008, "Invalid doctor data or account selection", HttpStatus.BAD_REQUEST),
+    DOCTOR_HAS_FUTURE_SCHEDULES(4009, "Cancel or move unfinished OPEN/FULL schedules before deactivating the doctor", HttpStatus.CONFLICT),
+    DOCTOR_SPECIALTY_CHANGE_NOT_ALLOWED(4010, "Cancel or move unfinished schedules before changing the doctor specialty", HttpStatus.CONFLICT),
     DOCTOR_ALREADY_EXISTS(4001, "Doctor profile already exists for this user", HttpStatus.BAD_REQUEST),
     DOCTOR_NOT_EXISTED(4002, "Doctor not existed", HttpStatus.NOT_FOUND),
     USER_IS_NOT_DOCTOR(4003, "User does not have DOCTOR role", HttpStatus.FORBIDDEN),

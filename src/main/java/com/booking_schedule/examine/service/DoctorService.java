@@ -1,194 +1,241 @@
 package com.booking_schedule.examine.service;
 
-import com.booking_schedule.examine.dto.request.DoctorCreateRequest;
-import com.booking_schedule.examine.dto.request.DoctorUpdateRequest;
-import com.booking_schedule.examine.dto.response.DoctorResponse;
-import com.booking_schedule.examine.entity.Doctor;
-import com.booking_schedule.examine.entity.Specialty;
-import com.booking_schedule.examine.entity.User;
-import com.booking_schedule.examine.enums.ERole;
-import com.booking_schedule.examine.enums.EStatus;
-import com.booking_schedule.examine.exception.AppException;
-import com.booking_schedule.examine.exception.ErrorCode;
+import com.booking_schedule.examine.dto.request.*;
+import com.booking_schedule.examine.dto.response.*;
+import com.booking_schedule.examine.entity.*;
+import com.booking_schedule.examine.enums.*;
+import com.booking_schedule.examine.exception.*;
 import com.booking_schedule.examine.mapper.DoctorMapper;
-import com.booking_schedule.examine.repository.DoctorRepository;
-import com.booking_schedule.examine.repository.RoleRepository;
-import com.booking_schedule.examine.repository.SpecialtyRepository;
-import com.booking_schedule.examine.repository.UserRepository;
-import lombok.AccessLevel;
+import com.booking_schedule.examine.repository.*;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
-import lombok.experimental.FieldDefaults;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
+import java.time.*;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
-@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
-@Slf4j
 @Transactional(readOnly = true)
 public class DoctorService {
+    private final DoctorMapper doctorMapper;
+    private final DoctorRepository doctorRepository;
+    private final SpecialtyRepository specialtyRepository;
+    private final DoctorScheduleRepository schedules;
+    private final DoctorAuditRepository audits;
+    private final UserService users;
+    private final EntityManager entityManager;
 
-    DoctorMapper doctorMapper;
-    DoctorRepository doctorRepository;
-    UserRepository userRepository;
-    SpecialtyRepository specialtyRepository;
-    RoleRepository roleRepository;
-
-    // ==================== CREATE ====================
-
-    /**
-     * Luồng nghiệp vụ tạo hồ sơ bác sĩ (Admin thực hiện):
-     * 1. Kiểm tra User tồn tại
-     * 2. Kiểm tra User chưa có hồ sơ bác sĩ (UNIQUE user_id)
-     * 3. Gán DOCTOR cùng transaction với tạo hồ sơ; không cần gán role trước
-     * 4. Kiểm tra Specialty tồn tại và đang ACTIVE
-     * 5. Kiểm tra doctorCode unique (hoặc tự sinh nếu không truyền)
-     * 6. Build + lưu + trả về response
-     */
     @Transactional
     public DoctorResponse createDoctor(DoctorCreateRequest request) {
-        User user = userRepository.findLockedById(request.getUserId())
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-        if (!"ACTIVE".equals(user.getStatus())) throw new AppException(ErrorCode.USER_INACTIVE);
-
-        if (doctorRepository.existsByUserId(user.getId())) {
-            throw new AppException(ErrorCode.DOCTOR_ALREADY_EXISTS);
-        }
-
-        Specialty specialty = specialtyRepository.findById(request.getSpecialtyId())
-                .orElseThrow(() -> new AppException(ErrorCode.SPECIALTY_NOT_EXISTED));
-        if (specialty.getStatus() != EStatus.ACTIVE) {
-            throw new AppException(ErrorCode.SPECIALTY_INACTIVE);
-        }
-
-        String doctorCode = generateDoctorCode(request.getDoctorCode());
-
-        Doctor doctor = Doctor.builder()
-                .user(user)
-                .specialty(specialty)
-                .doctorCode(doctorCode)
-                .position(request.getPosition())
-                .experienceYears(request.getExperienceYears())
-                .description(request.getDescription())
-                .status(EStatus.ACTIVE)
-                .build();
-
-        doctor = doctorRepository.save(doctor);
-        user.setDoctor(doctor);
-        user.getRoles().add(roleRepository.findByName(ERole.DOCTOR)
-                .orElseThrow(() -> new AppException(ErrorCode.INVALID_ROLE)));
-        user.revokeTokens();
-        log.info("Created doctor profile for userId={}, doctorCode={}", user.getId(), doctorCode);
-        return doctorMapper.toDoctorResponse(doctor);
+        if (!request.isAccountSelectionValid()) invalid();
+        User actor = users.beginProfileAdminWrite();
+        Long userId = request.getUserId();
+        if (userId == null) userId = users.createUser(request.getUser()).getId();
+        User target = users.lockProfileTarget(actor, userId);
+        if (!"ACTIVE".equals(target.getStatus())) throw new AppException(ErrorCode.USER_INACTIVE);
+        if (doctorRepository.findLockedByUserId(userId).isPresent()) throw new AppException(ErrorCode.DOCTOR_ALREADY_EXISTS);
+        Specialty specialty = activeSpecialty(request.getSpecialtyId());
+        String code = request.getDoctorCode() == null || request.getDoctorCode().isBlank()
+                ? ProfileCodeGenerator.generate("BS") : normalizeCode(request.getDoctorCode());
+        ensureUniqueCode(code, null);
+        validateExperience(request.getExperienceYears(), true);
+        Doctor doctor = Doctor.builder().user(target).specialty(specialty).doctorCode(code).status(EStatus.ACTIVE)
+                .position(text(request.getPosition(), 100, true)).experienceYears(request.getExperienceYears())
+                .description(text(request.getDescription(), 2000, false)).build();
+        doctorRepository.saveAndFlush(doctor);
+        target.setDoctor(doctor);
+        users.linkDoctorRole(actor, target);
+        audit(actor, doctor, "CREATE", fields(doctor).keySet());
+        return response(doctor, users.profileReadContext());
     }
 
-    // ==================== UPDATE ====================
-
-    /**
-     * Luồng nghiệp vụ cập nhật hồ sơ bác sĩ (Admin thực hiện):
-     * 1. Kiểm tra Doctor tồn tại theo doctorId
-     * 2. Nếu request đổi specialty → kiểm tra specialty mới hợp lệ & ACTIVE
-     * 3. Nếu request đổi doctorCode → kiểm tra không trùng với bác sĩ khác
-     * 4. Cập nhật các trường chuyên môn (position, experienceYears, description, status)
-     * 5. Lưu và trả về response
-     */
     @Transactional
     public DoctorResponse updateDoctor(Long doctorId, DoctorUpdateRequest request) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new AppException(ErrorCode.DOCTOR_NOT_EXISTED));
-
-        if (request.getSpecialtyId() != null &&
-                !request.getSpecialtyId().equals(doctor.getSpecialty().getId())) {
-            Specialty newSpecialty = specialtyRepository.findById(request.getSpecialtyId())
-                    .orElseThrow(() -> new AppException(ErrorCode.SPECIALTY_NOT_EXISTED));
-            if (newSpecialty.getStatus() != com.booking_schedule.examine.enums.EStatus.ACTIVE) {
-                throw new AppException(ErrorCode.SPECIALTY_INACTIVE);
-            }
-            doctor.setSpecialty(newSpecialty);
+        User actor = users.beginProfileAdminWrite();
+        Doctor doctor = lockedTarget(actor, doctorId);
+        Map<String, Object> before = fields(doctor);
+        if (!request.isClearSelectionValid()) invalid();
+        validateExperience(request.getExperienceYears(), false);
+        if (request.getSpecialtyId() != null && !request.getSpecialtyId().equals(doctor.getSpecialty().getId())) {
+            requireNoSchedules(doctor, List.of(EStatusDoctorSchedule.OPEN, EStatusDoctorSchedule.FULL,
+                    EStatusDoctorSchedule.CLOSED), ErrorCode.DOCTOR_SPECIALTY_CHANGE_NOT_ALLOWED);
+            doctor.setSpecialty(activeSpecialty(request.getSpecialtyId()));
         }
-
-        if (request.getDoctorCode() != null && !request.getDoctorCode().isBlank()
-                && !request.getDoctorCode().equals(doctor.getDoctorCode())) {
-            if (doctorRepository.existsByDoctorCodeAndIdNot(request.getDoctorCode(), doctorId)) {
-                throw new AppException(ErrorCode.DOCTOR_ALREADY_EXISTS);
-            }
-            doctor.setDoctorCode(request.getDoctorCode());
+        if (request.getDoctorCode() != null) {
+            String code = normalizeCode(request.getDoctorCode());
+            ensureUniqueCode(code, doctorId);
+            doctor.setDoctorCode(code);
         }
-
-        doctorMapper.updateDoctorFromRequest(doctor, request);
-
-        if (request.getStatus() != null) {
-            doctor.setStatus(request.getStatus());
+        if (request.getPosition() != null) doctor.setPosition(text(request.getPosition(), 100, true));
+        if (request.getExperienceYears() != null) doctor.setExperienceYears(request.getExperienceYears());
+        if (Boolean.TRUE.equals(request.getClearDescription())) doctor.setDescription(null);
+        else if (request.getDescription() != null) doctor.setDescription(text(request.getDescription(), 2000, false));
+        if (request.getStatus() != null) applyStatus(doctor, request.getStatus());
+        if (request.getAccount() != null) {
+            var account = request.getAccount();
+            users.updateUser(doctor.getUser().getId(), UpdateUserRequest.builder().fullName(account.getFullName())
+                    .email(account.getEmail()).phone(account.getPhone()).build());
         }
-
-        Doctor saved = doctorRepository.save(doctor);
-        log.info("Updated doctor doctorId={}", doctorId);
-        return doctorMapper.toDoctorResponse(saved);
+        doctorRepository.saveAndFlush(doctor);
+        audit(actor, doctor, "UPDATE", changedFields(before, fields(doctor)));
+        return response(doctor, users.profileReadContext());
     }
 
-    // ==================== DELETE ====================
-
-    /**
-     * Luồng nghiệp vụ xóa / vô hiệu hóa bác sĩ (Admin thực hiện):
-     * <p>
-     * Luôn vô hiệu hóa hồ sơ, giữ quan hệ với User và toàn bộ lịch sử.
-     */
     @Transactional
-    public String deleteDoctor(Long doctorId) {
+    public DoctorResponse changeStatus(Long doctorId, EStatus status) {
+        User actor = users.beginProfileAdminWrite();
+        Doctor doctor = lockedTarget(actor, doctorId);
+        var before = fields(doctor);
+        applyStatus(doctor, status);
+        doctorRepository.saveAndFlush(doctor);
+        audit(actor, doctor, "STATUS_CHANGED", changedFields(before, fields(doctor)));
+        return response(doctor, users.profileReadContext());
+    }
+
+    @Transactional
+    public DoctorDeleteResponse deleteDoctor(Long doctorId) {
+        User actor = users.beginProfileAdminWrite();
+        Doctor doctor = lockedTarget(actor, doctorId);
+        var before = fields(doctor);
+        applyStatus(doctor, EStatus.INACTIVE);
+        doctorRepository.saveAndFlush(doctor);
+        audit(actor, doctor, "DEACTIVATED", changedFields(before, fields(doctor)));
+        return new DoctorDeleteResponse(doctorId, "DEACTIVATED", "INACTIVE",
+                "Bác sĩ đã được vô hiệu hóa; hồ sơ và lịch sử được giữ lại");
+    }
+
+    public DoctorResponse getDoctor(Long doctorId) {
+        var context = users.profileReadContext();
+        return response(doctorRepository.findById(doctorId)
+                .orElseThrow(() -> new AppException(ErrorCode.DOCTOR_NOT_EXISTED)), context);
+    }
+
+    public List<DoctorResponse> getAllDoctors(Long specialtyId, EStatus status) {
+        var context = users.profileReadContext();
+        return doctorRepository.findAll(filters(DoctorSearchRequest.builder().specialtyId(specialtyId).status(status).build()),
+                Sort.by("id")).stream().map(d -> response(d, context)).toList();
+    }
+
+    public Page<DoctorResponse> search(DoctorSearchRequest request, Pageable pageable) {
+        var context = users.profileReadContext();
+        return doctorRepository.findAll(filters(request), pageable).map(d -> response(d, context));
+    }
+
+    public Page<DoctorAuditResponse> auditLogs(Long doctorId, Pageable pageable) {
+        users.profileReadContext();
+        if (!doctorRepository.existsById(doctorId)) throw new AppException(ErrorCode.DOCTOR_NOT_EXISTED);
+        return audits.findByDoctorId(doctorId, pageable).map(row -> new DoctorAuditResponse(row.getId(),
+                row.getActorUserId(), row.getDoctorId(), row.getAction(),
+                row.getChangedFields().isEmpty() ? List.of() : List.of(row.getChangedFields().split(",")), row.getCreatedAt()));
+    }
+
+    private Doctor lockedTarget(User actor, Long doctorId) {
+        Long userId = doctorRepository.findUserIdByDoctorId(doctorId)
+                .orElseThrow(() -> new AppException(ErrorCode.DOCTOR_NOT_EXISTED));
+        users.lockProfileTarget(actor, userId);
         Doctor doctor = doctorRepository.findLockedById(doctorId)
                 .orElseThrow(() -> new AppException(ErrorCode.DOCTOR_NOT_EXISTED));
-
-        doctor.setStatus(EStatus.INACTIVE);
-        doctorRepository.save(doctor);
-        return "Bác sĩ đã được vô hiệu hóa; hồ sơ và lịch sử được giữ lại";
+        entityManager.refresh(doctor, LockModeType.PESSIMISTIC_WRITE);
+        return doctor;
     }
 
-    /**
-     * Lấy chi tiết bác sĩ theo doctorId.
-     */
-    public DoctorResponse getDoctor(Long doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new AppException(ErrorCode.DOCTOR_NOT_EXISTED));
-        return doctorMapper.toDoctorResponse(doctor);
-    }
-
-    /**
-     * Lấy danh sách bác sĩ, hỗ trợ lọc theo specialtyId và/hoặc status.
-     *
-     * @param specialtyId null = không lọc theo chuyên khoa
-     * @param status      null = trả về tất cả trạng thái
-     */
-    public List<DoctorResponse> getAllDoctors(Long specialtyId, EStatus status) {
-        List<Doctor> doctors;
-
-        if (specialtyId != null && status != null) {
-            doctors = doctorRepository.findBySpecialtyIdAndStatus(specialtyId, status);
-        } else if (specialtyId != null) {
-            doctors = doctorRepository.findBySpecialtyId(specialtyId);
-        } else if (status != null) {
-            doctors = doctorRepository.findByStatus(status);
+    private void applyStatus(Doctor doctor, EStatus status) {
+        if (status == null) invalid();
+        if (status == EStatus.ACTIVE) {
+            if (!"ACTIVE".equals(doctor.getUser().getStatus())) throw new AppException(ErrorCode.USER_INACTIVE);
+            activeSpecialty(doctor.getSpecialty().getId());
         } else {
-            doctors = doctorRepository.findAll();
+            requireNoSchedules(doctor, List.of(EStatusDoctorSchedule.OPEN, EStatusDoctorSchedule.FULL),
+                    ErrorCode.DOCTOR_HAS_FUTURE_SCHEDULES);
         }
-
-        return doctors.stream().map(doctorMapper::toDoctorResponse).toList();
+        doctor.setStatus(status);
     }
 
+    private void requireNoSchedules(Doctor doctor, List<EStatusDoctorSchedule> statuses, ErrorCode error) {
+        LocalDateTime now = LocalDateTime.now();
+        if (!schedules.findLockedUnfinished(doctor.getId(), now.toLocalDate(), now.toLocalTime(), statuses).isEmpty())
+            throw new AppException(error);
+    }
 
-    /**
-     * Sinh mã bác sĩ tự động nếu client không truyền.
-     * Format: BS-YYYYMMDD-<UUID không có dấu gạch ngang>
-     */
-    private String generateDoctorCode(String requestedCode) {
-        if (requestedCode != null && !requestedCode.isBlank()) {
-            if (doctorRepository.existsByDoctorCode(requestedCode)) {
-                throw new AppException(ErrorCode.DOCTOR_ALREADY_EXISTS);
+    private Specialty activeSpecialty(Long id) {
+        if (id == null || id <= 0) { invalid(); }
+        Specialty specialty = specialtyRepository.findLockedById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.SPECIALTY_NOT_EXISTED));
+        entityManager.refresh(specialty, LockModeType.PESSIMISTIC_WRITE);
+        if (specialty.getStatus() != EStatus.ACTIVE) throw new AppException(ErrorCode.SPECIALTY_INACTIVE);
+        return specialty;
+    }
+
+    private Specification<Doctor> filters(DoctorSearchRequest request) {
+        if ((request.getSpecialtyId() != null && request.getSpecialtyId() <= 0)
+                || (request.getUserStatus() != null && !Set.of("ACTIVE", "INACTIVE").contains(request.getUserStatus()))) invalid();
+        return (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+            if (request.getSpecialtyId() != null) predicates.add(cb.equal(root.get("specialty").get("id"), request.getSpecialtyId()));
+            if (request.getStatus() != null) predicates.add(cb.equal(root.get("status"), request.getStatus()));
+            if (request.getUserStatus() != null) predicates.add(cb.equal(root.get("user").get("status"), request.getUserStatus()));
+            if (request.getKeyword() != null && !request.getKeyword().isBlank()) {
+                String pattern = "%" + request.getKeyword().trim().toLowerCase(Locale.ROOT)
+                        .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+                predicates.add(cb.or(cb.like(cb.lower(root.get("doctorCode")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("user").get("username")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("user").get("fullName")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("user").get("email")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("user").get("phone")), pattern, '\\')));
             }
-            return requestedCode;
-        }
-        return ProfileCodeGenerator.generate("BS");
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+    }
+
+    private DoctorResponse response(Doctor doctor, UserService.ProfileReadContext context) {
+        DoctorResponse response = doctorMapper.toDoctorResponse(doctor);
+        var capability = users.profileCapabilities(doctor.getUser(), context.actor(), context.activeSuperAdmins());
+        // Capabilities describe authorization; schedule conflicts remain authoritative server checks.
+        response.setCapabilities(new DoctorResponse.Capabilities(capability.canEdit(), capability.canEdit(),
+                capability.canEdit(), capability.canEdit(), capability.canDeactivate(), false));
+        return response;
+    }
+
+    private String normalizeCode(String value) { return text(text(value, 50, true).toUpperCase(Locale.ROOT), 50, true); }
+    private void ensureUniqueCode(String code, Long id) {
+        if (id == null ? doctorRepository.existsByDoctorCodeIgnoreCase(code)
+                : doctorRepository.existsByDoctorCodeIgnoreCaseAndIdNot(code, id))
+            throw new AppException(ErrorCode.DOCTOR_CODE_EXISTS);
+    }
+    private String text(String value, int max, boolean required) {
+        String result = value == null ? null : value.trim();
+        if ((required && (result == null || result.isEmpty())) || (result != null && result.length() > max)) invalid();
+        return result == null || result.isEmpty() ? null : result;
+    }
+    private void validateExperience(Integer years, boolean required) {
+        if ((required && years == null) || (years != null && (years < 0 || years > 70))) invalid();
+    }
+    private void invalid() { throw new AppException(ErrorCode.DOCTOR_INVALID_REQUEST); }
+
+    private Map<String, Object> fields(Doctor doctor) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("doctorCode", doctor.getDoctorCode());
+        fields.put("specialtyId", doctor.getSpecialty().getId());
+        fields.put("position", doctor.getPosition());
+        fields.put("experienceYears", doctor.getExperienceYears());
+        fields.put("description", doctor.getDescription());
+        fields.put("status", doctor.getStatus());
+        fields.put("fullName", doctor.getUser().getFullName());
+        fields.put("email", doctor.getUser().getEmail());
+        fields.put("phone", doctor.getUser().getPhone());
+        return fields;
+    }
+    private Set<String> changedFields(Map<String, Object> before, Map<String, Object> after) {
+        Set<String> result = new TreeSet<>();
+        before.forEach((key, value) -> { if (!Objects.equals(value, after.get(key))) result.add(key); });
+        return result;
+    }
+    private void audit(User actor, Doctor doctor, String action, Set<String> fields) {
+        audits.save(DoctorAudit.builder().actorUserId(actor.getId()).doctorId(doctor.getId()).action(action)
+                .changedFields(String.join(",", new TreeSet<>(fields))).build());
     }
 }

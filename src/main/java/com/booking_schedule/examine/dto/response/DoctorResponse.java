@@ -14,6 +14,12 @@ public class DoctorResponse {
     private Long id;
     private String doctorCode;
     private String status;
+    private String userStatus;
+    private String specialtyStatus;
+    private Capabilities capabilities;
+    public record Capabilities(boolean canEditProfile, boolean canEditAccount,
+                               boolean canChangeStatus, boolean canDeactivateProfile,
+                               boolean canDeactivateAccount, boolean canDeleteProfile) {}
 
     // Thông tin từ User (Phẳng hóa)
     private Long userId;

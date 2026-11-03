@@ -26,6 +26,9 @@ public interface DoctorMapper {
     @Mapping(source = "user.phone", target = "phone")
     @Mapping(source = "specialty.id", target = "specialtyId")
     @Mapping(source = "specialty.name", target = "specialtyName")
+    @Mapping(source = "user.status", target = "userStatus")
+    @Mapping(source = "specialty.status", target = "specialtyStatus")
+    @Mapping(target = "capabilities", ignore = true)
     DoctorResponse toDoctorResponse(Doctor doctor);
 
     // updateDoctor: KHÔNG cho cập nhật user và doctorCode

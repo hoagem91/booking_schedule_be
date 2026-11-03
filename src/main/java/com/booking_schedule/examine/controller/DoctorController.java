@@ -4,6 +4,12 @@ import com.booking_schedule.examine.dto.request.DoctorCreateRequest;
 import com.booking_schedule.examine.dto.request.DoctorUpdateRequest;
 import com.booking_schedule.examine.dto.response.ApiResponse;
 import com.booking_schedule.examine.dto.response.DoctorResponse;
+import com.booking_schedule.examine.dto.request.DoctorSearchRequest;
+import com.booking_schedule.examine.dto.request.DoctorStatusRequest;
+import com.booking_schedule.examine.dto.response.DoctorAuditResponse;
+import com.booking_schedule.examine.dto.response.DoctorDeleteResponse;
+import org.springframework.data.domain.*;
+import org.springframework.data.web.PageableDefault;
 import com.booking_schedule.examine.enums.EStatus;
 import com.booking_schedule.examine.service.DoctorService;
 import jakarta.validation.Valid;
@@ -23,6 +29,23 @@ import java.util.List;
 public class DoctorController {
 
     DoctorService doctorService;
+
+    @PostMapping("/search")
+    public ApiResponse<Page<DoctorResponse>> search(@RequestBody @Valid DoctorSearchRequest request,
+            @PageableDefault(size = 20, sort = "id") Pageable pageable) {
+        return ApiResponse.<Page<DoctorResponse>>builder().result(doctorService.search(request, pageable)).build();
+    }
+
+    @PatchMapping("/{doctorId}/status")
+    public ApiResponse<DoctorResponse> status(@PathVariable Long doctorId, @RequestBody @Valid DoctorStatusRequest request) {
+        return ApiResponse.<DoctorResponse>builder().result(doctorService.changeStatus(doctorId, request.getStatus())).build();
+    }
+
+    @GetMapping("/{doctorId}/audit-logs")
+    public ApiResponse<Page<DoctorAuditResponse>> auditLogs(@PathVariable Long doctorId,
+            @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ApiResponse.<Page<DoctorAuditResponse>>builder().result(doctorService.auditLogs(doctorId, pageable)).build();
+    }
 
     /**
      * POST /api/admin/doctors
@@ -83,10 +106,9 @@ public class DoctorController {
      * Luôn vô hiệu hóa (INACTIVE), giữ hồ sơ và lịch sử.
      */
     @DeleteMapping("/{doctorId}")
-    public ApiResponse<String> deleteDoctor(@PathVariable Long doctorId) {
-        String message = doctorService.deleteDoctor(doctorId);
-        return ApiResponse.<String>builder()
-                .result(message)
+    public ApiResponse<DoctorDeleteResponse> deleteDoctor(@PathVariable Long doctorId) {
+        return ApiResponse.<DoctorDeleteResponse>builder()
+                .result(doctorService.deleteDoctor(doctorId))
                 .build();
     }
 }

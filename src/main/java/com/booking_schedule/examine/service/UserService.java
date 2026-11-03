@@ -241,6 +241,16 @@ public class UserService {
         audit(actor, target, "PATIENT_PROFILE_LINKED", before, false);
     }
 
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    void linkDoctorRole(User actor, User target) {
+        if (!doctorRepository.existsByUserId(target.getId())) throw new AppException(ErrorCode.ROLE_PROFILE_CONFLICT);
+        var before = snapshot(target);
+        target.getRoles().add(roleRepository.findByName(ERole.DOCTOR).orElseThrow(() -> new AppException(ErrorCode.INVALID_ROLE)));
+        target.revokeTokens();
+        persist(target);
+        audit(actor, target, "DOCTOR_PROFILE_LINKED", before, false);
+    }
+
     private Set<Role> resolveRoles(User actor, Long targetId, Set<String> requested) {
         if (requested.isEmpty()) throw new AppException(ErrorCode.INVALID_ROLE);
         Set<ERole> desired = new HashSet<>();
