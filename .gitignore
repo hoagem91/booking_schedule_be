@@ -57,6 +57,7 @@ application-prod.yml
 # Ignore all Markdown files
 *.md
 !APPOINTMENT_SUMMARY.md
+!APPOINTMENT_SEARCH.md
 !ADMIN_SPECIALTY_API.md
 !ADMIN_SERVICE_API.md
 !ADMIN_ROOM_API.md

@@ -196,8 +196,11 @@ public class AppointmentService {
         if (toDate != null) spec = spec.and((r, q, cb) -> cb.lessThanOrEqualTo(r.get("appointmentDate"), toDate));
         if (keyword != null && !keyword.isBlank()) {
             String pattern = "%" + keyword.trim().toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
-            spec = spec.and((r, q, cb) -> cb.or(cb.like(cb.lower(r.get("appointmentCode")), pattern, '\\'),
-                    cb.like(cb.lower(r.get("patient").get("user").get("fullName")), pattern, '\\')));
+            spec = spec.and((r, q, cb) -> cb.or(
+                    cb.like(cb.lower(r.get("appointmentCode")), pattern, '\\'),
+                    cb.like(cb.lower(r.get("patient").get("user").get("fullName")), pattern, '\\'),
+                    cb.like(cb.lower(r.get("patient").get("user").get("phone")), pattern, '\\')
+            ));
         }
         return spec;
     }

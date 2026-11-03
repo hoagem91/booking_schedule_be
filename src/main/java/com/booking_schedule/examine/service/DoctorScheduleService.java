@@ -55,6 +55,7 @@ public class DoctorScheduleService {
         LocalTime end = request.getEndTime() == null ? schedule.getEndTime() : request.getEndTime();
         int capacity = request.getMaxPatients() == null ? schedule.getMaxPatients() : request.getMaxPatients();
         boolean changed = !date.equals(schedule.getWorkDate()) || !start.equals(schedule.getStartTime()) || !end.equals(schedule.getEndTime());
+        if (changed && schedule.getStatus() != EStatusDoctorSchedule.CANCELLED) requireActive(schedule.getDoctor());
         // Acquire room lock before any ordinary read establishes a repeatable-read snapshot.
         Room targetRoom = request.getRoomId() != null ? resolveRoom(request.getRoomId()) : schedule.getRoom();
         if (request.getRoomId() == null && targetRoom != null) {
@@ -253,6 +254,10 @@ public class DoctorScheduleService {
     }
 
     private DoctorSchedule locked(Long id) {
+        // Match the doctor -> schedule lock order used by doctor status/specialty guards.
+        Long doctorId = schedules.findDoctorIdByScheduleId(id)
+                .orElseThrow(() -> new AppException(ErrorCode.SCHEDULE_NOT_FOUND));
+        lockDoctor(doctorId);
         return schedules.findLockedById(id).orElseThrow(() -> new AppException(ErrorCode.SCHEDULE_NOT_FOUND));
     }
 

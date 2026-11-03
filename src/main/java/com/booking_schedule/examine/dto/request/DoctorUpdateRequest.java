@@ -11,6 +11,7 @@ import lombok.*;
 @Builder
 public class DoctorUpdateRequest {
 
+    @Positive(message = "DOCTOR_INVALID_REQUEST")
     private Long specialtyId;
 
     // doctorCode có thể cập nhật nhưng phải unique — Service kiểm tra
@@ -29,7 +30,11 @@ public class DoctorUpdateRequest {
     @Size(max = 2000, message = "Tiểu sử/Mô tả không được vượt quá 2000 ký tự")
     private String description;
 
-    // Admin có thể đổi status: ACTIVE | INACTIVE
-    @Pattern(regexp = "^(ACTIVE|INACTIVE)$", message = "Trạng thái chỉ được là ACTIVE hoặc INACTIVE")
     private EStatus status;
+
+    @jakarta.validation.Valid
+    private DoctorAccountUpdateRequest account;
+    private Boolean clearDescription;
+    @AssertTrue(message = "DOCTOR_INVALID_REQUEST")
+    public boolean isClearSelectionValid() { return !Boolean.TRUE.equals(clearDescription) || description == null; }
 }

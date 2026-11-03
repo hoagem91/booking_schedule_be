@@ -10,8 +10,14 @@ import lombok.*;
 @Builder
 public class DoctorCreateRequest {
 
-    @NotNull(message = "Tài khoản người dùng (userId) không được để trống")
+    @Positive(message = "DOCTOR_INVALID_REQUEST")
     private Long userId;
+
+    @jakarta.validation.Valid
+    private CreateUserRequest user;
+
+    @AssertTrue(message = "DOCTOR_INVALID_REQUEST")
+    public boolean isAccountSelectionValid() { return (userId == null) != (user == null); }
 
     @NotNull(message = "Chuyên khoa (specialtyId) không được để trống")
     private Long specialtyId;
