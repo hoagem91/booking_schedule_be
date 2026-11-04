@@ -1,37 +1,12 @@
-# syntax=docker/dockerfile:1
-
-FROM eclipse-temurin:21-jdk-jammy AS build
-
+FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
+COPY pom.xml ./
+COPY src ./src
+RUN mvn -B -ntp clean package -DskipTests
 
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
-
-# Support build contexts checked out on Windows as well as Linux.
-RUN sed -i 's/\r$//' mvnw && chmod +x mvnw
-
-RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw --batch-mode --no-transfer-progress dependency:go-offline
-
-COPY src/ src/
-
-RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw --batch-mode --no-transfer-progress package -DskipTests \
-    && mkdir /out \
-    && cp target/*.jar /out/app.jar
-
-FROM eclipse-temurin:21-jre-jammy AS runtime
-
-RUN groupadd --gid 10001 app \
-    && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
-
+FROM eclipse-temurin:21-jre
 WORKDIR /app
-
-COPY --from=build --chown=app:app /out/app.jar app.jar
-
-USER app:app
-
-# Match application.yaml; override with SERVER_PORT when needed.
+COPY --from=builder --chown=10001:10001 /app/target/*.jar ./app.jar
+USER 10001:10001
 EXPOSE 8080
-
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
