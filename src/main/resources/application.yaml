@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: ${PORT:8080}
   servlet:
     context-path: /booking-schedule
 spring:
@@ -7,9 +7,8 @@ spring:
     name: examine
   datasource:
     url: jdbc:mysql://${MYSQLHOST:localhost}:${MYSQLPORT:3306}/${MYSQL_DATABASE:booking_schedule}?${MYSQL_USE_SSL:useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
-    driverClassName: "com.mysql.cj.jdbc.Driver"
     username: ${MYSQLUSER:root}
-    password: ${MYSQL_ROOT_PASSWORD:root}
+    password: ${MYSQLPASSWORD:${MYSQL_ROOT_PASSWORD:root}}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
