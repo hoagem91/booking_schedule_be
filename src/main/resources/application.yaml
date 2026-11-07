@@ -22,3 +22,11 @@ spring:
 jwt:
   valid-duration: 3600
   refreshable-duration: 36000
+payment:
+  vnpay:
+    tmn-code: ${VNPAY_TMN_CODE:}
+    hash-secret: ${VNPAY_HASH_SECRET:}
+    pay-url: ${VNPAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+    return-url: ${VNPAY_RETURN_URL:http://localhost:8080/booking-schedule/api/payments/vnpay/return}
+    frontend-result-url: ${VNPAY_FRONTEND_RESULT_URL:http://localhost:4200/payment/result}
+    expire-minutes: 15

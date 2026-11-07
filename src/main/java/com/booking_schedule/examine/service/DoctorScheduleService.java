@@ -129,13 +129,23 @@ public class DoctorScheduleService {
 
     public Page<DoctorScheduleResponse> search(Long doctorId, Long specialtyId, LocalDate fromDate,
                                                LocalDate toDate, EStatusDoctorSchedule status, Pageable pageable) {
-        return schedules.findAll(filters(doctorId, specialtyId, fromDate, toDate, status), pageable).map(mapper::toDoctorScheduleResponse);
+        return searchByStatuses(doctorId, specialtyId, fromDate, toDate,
+                status == null ? null : List.of(status), pageable);
+    }
+
+    public Page<DoctorScheduleResponse> searchByStatuses(Long doctorId, Long specialtyId, LocalDate fromDate,
+                                                         LocalDate toDate, List<EStatusDoctorSchedule> statuses,
+                                                         Pageable pageable) {
+        return schedules.findAll(filters(doctorId, specialtyId, fromDate, toDate, statuses), pageable)
+                .map(mapper::toDoctorScheduleResponse);
     }
 
     public List<DoctorScheduleResponse> publicSchedules(Long doctorId, Long specialtyId, LocalDate fromDate, LocalDate toDate) {
         LocalDate today = LocalDate.now();
-        Specification<DoctorSchedule> filter = filters(doctorId, specialtyId, fromDate, toDate, EStatusDoctorSchedule.OPEN);
-        filter = filter.and((root, query, cb) -> cb.and(cb.greaterThanOrEqualTo(root.get("workDate"), today),
+        Specification<DoctorSchedule> filter = filters(doctorId, specialtyId, fromDate, toDate,
+                List.of(EStatusDoctorSchedule.OPEN));
+        filter = filter.and((root, query, cb) ->
+                cb.and(cb.greaterThanOrEqualTo(root.get("workDate"), today),
                 cb.equal(root.get("doctor").get("status"), EStatus.ACTIVE),
                 cb.equal(root.get("doctor").get("user").get("status"), "ACTIVE"),
                 cb.equal(root.get("doctor").get("specialty").get("status"), EStatus.ACTIVE)));
@@ -151,7 +161,8 @@ public class DoctorScheduleService {
                 }).filter(s -> !s.getTimeSlots().isEmpty()).toList();
     }
 
-    private Specification<DoctorSchedule> filters(Long doctorId, Long specialtyId, LocalDate from, LocalDate to, EStatusDoctorSchedule status) {
+    private Specification<DoctorSchedule> filters(Long doctorId, Long specialtyId, LocalDate from, LocalDate to,
+                                                   List<EStatusDoctorSchedule> statuses) {
         if (from != null && to != null && from.isAfter(to)) throw new AppException(ErrorCode.SCHEDULE_INVALID_TIME);
         return (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
@@ -160,7 +171,7 @@ public class DoctorScheduleService {
                 predicates.add(cb.equal(root.get("doctor").get("specialty").get("id"), specialtyId));
             if (from != null) predicates.add(cb.greaterThanOrEqualTo(root.get("workDate"), from));
             if (to != null) predicates.add(cb.lessThanOrEqualTo(root.get("workDate"), to));
-            if (status != null) predicates.add(cb.equal(root.get("status"), status));
+            if (statuses != null && !statuses.isEmpty()) predicates.add(root.get("status").in(statuses));
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
     }
