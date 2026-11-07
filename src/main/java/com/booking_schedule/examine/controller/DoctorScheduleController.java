@@ -39,7 +39,8 @@ public class DoctorScheduleController {
     public ApiResponse<Page<DoctorScheduleResponse>> search(@Valid @RequestBody DoctorScheduleSearchRequest request,
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         return ApiResponse.<Page<DoctorScheduleResponse>>builder()
-                .result(service.search(request.getDoctorId(), request.getSpecialtyId(), request.getFromDate(),
-                        request.getToDate(), request.getStatus(), pageable)).build();
+                .result(service.searchByStatuses(request.getDoctorId(), request.getSpecialtyId(), request.getFromDate(),
+                        request.getToDate(), request.getStatuses() != null ? request.getStatuses()
+                                : request.getStatus() == null ? null : java.util.List.of(request.getStatus()), pageable)).build();
     }
 }

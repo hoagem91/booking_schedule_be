@@ -4,6 +4,7 @@ import com.booking_schedule.examine.enums.EStatusDoctorSchedule;
 import lombok.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Getter
 @Setter
@@ -16,4 +17,5 @@ public class DoctorScheduleSearchRequest {
     private LocalDate fromDate;
     private LocalDate toDate;
     private EStatusDoctorSchedule status;
+    private List<EStatusDoctorSchedule> statuses;
 }
