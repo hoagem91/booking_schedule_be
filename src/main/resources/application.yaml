@@ -7,6 +7,18 @@ spring:
     default: local
   application:
     name: examine
+  ai:
+    model:
+      chat: none
+    retry:
+      max-attempts: 1
+    google:
+      genai:
+        api-key: ${GEMINI_API_KEY:}
+        chat:
+          options:
+            model: ${GEMINI_MODEL:gemini-3.8-flash}
+            max-output-tokens: 512
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
@@ -30,3 +42,21 @@ payment:
     return-url: ${VNPAY_RETURN_URL:http://localhost:8080/booking-schedule/api/payments/vnpay/return}
     frontend-result-url: ${VNPAY_FRONTEND_RESULT_URL:http://localhost:4200/payment/result}
     expire-minutes: 15
+  vietqr:
+    webhook-secret: ${VIETQR_WEBHOOK_SECRET:}
+    enabled: ${VIETQR_ENABLED:false}
+    api-base-url: ${VIETQR_API_BASE_URL:https://dev.vietqr.org}
+    api-username: ${VIETQR_API_USERNAME:}
+    api-password: ${VIETQR_API_PASSWORD:}
+    token-username: ${VIETQR_TOKEN_USERNAME:}
+    token-password: ${VIETQR_TOKEN_PASSWORD:}
+    bank-code: ${VIETQR_BANK_CODE:}
+    bank-account: ${VIETQR_BANK_ACCOUNT:}
+    user-bank-name: ${VIETQR_USER_BANK_NAME:}
+    webhook-token-ttl-seconds: ${VIETQR_WEBHOOK_TOKEN_TTL_SECONDS:300}
+
+assistant:
+  request-timeout-ms: ${ASSISTANT_REQUEST_TIMEOUT_MS:10000}
+  groq:
+    api-key: ${GROQ_API_KEY:}
+    model: ${GROQ_MODEL:llama-3.3-70b-versatile}

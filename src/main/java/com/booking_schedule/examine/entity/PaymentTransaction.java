@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payment_transactions", indexes = @Index(name = "idx_payment_txn_payment", columnList = "payment_id"))
+@Table(name = "payment_transactions", indexes = @Index(name = "idx_payment_txn_payment", columnList = "payment_id"), uniqueConstraints = @UniqueConstraint(name="uk_payment_provider_event", columnNames={"provider", "provider_event_id"}))
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class PaymentTransaction {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -40,6 +40,12 @@ public class PaymentTransaction {
     @Column(name = "transaction_status", length = 10)
     private String transactionStatus;
 
+    @Column(length = 20)
+    private String provider;
+    @Column(length = 100)
+    private String receivingAccount;
+    @Column(name="provider_event_id", length = 100)
+    private String providerEventId;
     private LocalDateTime expiresAt;
     private LocalDateTime paidAt;
 

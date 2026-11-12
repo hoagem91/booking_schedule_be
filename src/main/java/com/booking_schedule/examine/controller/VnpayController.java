@@ -36,6 +36,8 @@ public class VnpayController {
         PaymentTransaction tx = transactions.findByTxnRef(txnRef).orElseThrow(
                 () -> new com.booking_schedule.examine.exception.AppException(
                         com.booking_schedule.examine.exception.ErrorCode.APPOINTMENT_NOT_FOUND));
+        if ("VIETQR".equals(tx.getProvider())) throw new com.booking_schedule.examine.exception.AppException(
+                com.booking_schedule.examine.exception.ErrorCode.APPOINTMENT_NOT_FOUND);
         appointments.getMine(tx.getPayment().getAppointment().getId());
         return ApiResponse.<VnpayTransactionStatusResponse>builder().result(VnpayTransactionStatusResponse.builder()
                 .txnRef(tx.getTxnRef()).status(tx.getStatus()).amount(tx.getAmount())

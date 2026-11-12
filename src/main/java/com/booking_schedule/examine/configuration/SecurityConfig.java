@@ -25,7 +25,9 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity.authorizeHttpRequests(request -> request
                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/assistant/chat", "/api/assistant/quick-reply").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/payments/vnpay/ipn", "/api/payments/vnpay/return").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/token_generate", "/bank/api/transaction-sync").permitAll()
                 .requestMatchers("/users/me", "/users/me/password").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/public/specialties").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/admin/specialties", "/api/admin/specialties/**",
