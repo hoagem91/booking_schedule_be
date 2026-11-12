@@ -14,6 +14,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.*;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -30,6 +32,7 @@ public class VnpayService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private final VnpayProperties properties;
     private final PaymentRepository payments;
+    private final jakarta.persistence.EntityManager entityManager;
     private final PaymentTransactionRepository transactions;
     private final AppointmentService appointments;
 
@@ -57,10 +60,11 @@ public class VnpayService {
         payment.setAmount(amount);
         payment.setPaymentMethod("VNPAY");
         LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"));
-        LocalDateTime expires = now.plusMinutes(Math.max(1, properties.getExpireMinutes()));
+        // VNPay accepts a payment window of up to 15 minutes.
+        LocalDateTime expires = now.plusMinutes(Math.max(1, Math.min(15, properties.getExpireMinutes())));
         String txnRef = newTxnRef();
         PaymentTransaction tx = transactions.save(PaymentTransaction.builder().payment(payment).txnRef(txnRef)
-                .amount(amount).status(EPaymentTransactionStatus.PENDING).expiresAt(expires).build());
+                .provider("VNPAY").amount(amount).status(EPaymentTransactionStatus.PENDING).expiresAt(expires).build());
         Map<String, String> params = new TreeMap<>();
         params.put("vnp_Version", "2.1.0");
         params.put("vnp_Command", "pay");
@@ -86,8 +90,11 @@ public class VnpayService {
     public String processIpn(Map<String, String> params) {
         if (!verify(params)) return "97";
         if (!properties.getTmnCode().equals(params.get("vnp_TmnCode"))) return "97";
+        PaymentTransaction snapshot = transactions.findByTxnRef(params.get("vnp_TxnRef")).orElse(null);
+        if (snapshot == null || "VIETQR".equals(snapshot.getProvider())) return "01";
+        appointments.lock(snapshot.getPayment().getAppointment().getId());
         PaymentTransaction tx = transactions.findLockedByTxnRef(params.get("vnp_TxnRef")).orElse(null);
-        if (tx == null) return "01";
+        if (tx == null || "VIETQR".equals(tx.getProvider())) return "01";
         BigDecimal vnpAmount = new BigDecimal(params.getOrDefault("vnp_Amount", "-1")).movePointLeft(2);
         if (vnpAmount.compareTo(tx.getAmount()) != 0) return "04";
         if (tx.getStatus() != EPaymentTransactionStatus.PENDING) return "02";
@@ -106,7 +113,12 @@ public class VnpayService {
         if ("00".equals(response) && "00".equals(transactionStatus)) {
             tx.setStatus(EPaymentTransactionStatus.SUCCESS);
             tx.setPaidAt(LocalDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh")));
-            Payment payment = tx.getPayment();
+            Payment payment = payments.findLockedById(tx.getPayment().getId()).orElseThrow();
+            entityManager.refresh(payment, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+            if (payment.getPaymentStatus() == EPaymentStatus.SUCCESS || payment.getPaymentStatus() == EPaymentStatus.REFUNDED) {
+                tx.setStatus(EPaymentTransactionStatus.REVIEW_REQUIRED);
+                return "00";
+            }
             payment.setPaymentStatus(EPaymentStatus.SUCCESS);
             payment.setTransactionCode(params.get("vnp_TransactionNo"));
             payment.setPaidAt(tx.getPaidAt());
@@ -136,14 +148,31 @@ public class VnpayService {
         return params.entrySet().stream().filter(e -> e.getValue() != null && !e.getValue().isEmpty())
                 .map(e -> encode(e.getKey()) + "=" + encode(e.getValue())).collect(Collectors.joining("&"));
     }
-    private String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
+    // VNPay's Java checksum examples URL-encode each key/value with US-ASCII.
+    // The parameters we send (including the unaccented order info) are ASCII.
+    private String encode(String value) { return URLEncoder.encode(value, StandardCharsets.US_ASCII); }
     private String newTxnRef() {
         String value;
         do { value = Long.toString(1_000_000_000_000L + RANDOM.nextLong(8_000_000_000_000L)); }
         while (transactions.existsByTxnRef(value));
         return value;
     }
-    private String normalizeIp(String ip) { return ip == null || ip.isBlank() ? "127.0.0.1" : ip.split(",")[0].trim(); }
+    private String normalizeIp(String ip) {
+        if (ip == null || ip.isBlank()) return "127.0.0.1";
+        String address = ip.split(",")[0].trim();
+        // Java servers commonly report the IPv6 loopback as either ::1 or its expanded form.
+        // VNPay expects an IPv4 client address in local development in this case.
+        if (address.startsWith("[") && address.endsWith("]"))
+            address = address.substring(1, address.length() - 1);
+        if (address.contains(":")) {
+            try {
+                if (InetAddress.getByName(address).isLoopbackAddress()) return "127.0.0.1";
+            } catch (UnknownHostException ignored) {
+                return "127.0.0.1";
+            }
+        }
+        return address;
+    }
     private String hmacSha512(String secret, String data) {
         try {
             Mac mac = Mac.getInstance("HmacSHA512");
