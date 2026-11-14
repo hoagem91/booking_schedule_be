@@ -24,6 +24,10 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity.authorizeHttpRequests(request -> request
+                .requestMatchers("/api/admin/payments", "/api/admin/payments/**")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
+                .requestMatchers("/api/patient/payments", "/api/patient/payments/**")
+                .hasAuthority("SCOPE_PATIENT")
                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/assistant/chat", "/api/assistant/quick-reply").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/payments/vnpay/ipn", "/api/payments/vnpay/return").permitAll()

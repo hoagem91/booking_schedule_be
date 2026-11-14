@@ -62,6 +62,9 @@ public enum ErrorCode {
     DOCTOR_HAS_HISTORY(4005, "Cannot hard-delete doctor with existing schedules or appointments", HttpStatus.CONFLICT),
     DOCTOR_ALREADY_INACTIVE(4006, "Doctor is already inactive", HttpStatus.BAD_REQUEST),
 
+    PAYMENT_NOT_FOUND(9201, "Payment not found", HttpStatus.NOT_FOUND),
+    PAYMENT_INVALID_REQUEST(9202, "Invalid payment filters", HttpStatus.BAD_REQUEST),
+    PAYMENT_PROVIDER_UNSUPPORTED(9203, "Only payOS supports manual synchronization", HttpStatus.CONFLICT),
     //    Service
     SERVICE_EXISTED(5001, "Service already exists", HttpStatus.BAD_REQUEST),
     SERVICE_NOT_EXISTED(5003, "Service not existed", HttpStatus.NOT_FOUND),
