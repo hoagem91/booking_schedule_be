@@ -16,6 +16,8 @@ public class ClinicDirectAnswers {
 
     public Optional<String> answer(String message) {
         String text = normalize(message);
+        var faq = ClinicFaqAnswers.answer(text);
+        if (faq.isPresent()) return faq;
         if (Set.of("xin chao", "chao", "hello", "hi").contains(text)) {
             return Optional.of("Xin chào! Bạn muốn xem chuyên khoa, giá dịch vụ hay hướng dẫn đặt lịch?");
         }
@@ -40,13 +42,20 @@ public class ClinicDirectAnswers {
         return answerCatalogQuestion(text);
     }
 
-    public enum QuickAction { SPECIALTIES, SERVICES, BOOKING_HELP }
+    public enum QuickAction {
+        SPECIALTIES, SERVICES, BOOKING_HELP, CHAT_HELP, APPOINTMENT_HELP, CANCEL_HELP, RESCHEDULE_HELP,
+        PAYMENT_HELP, VNPAY_HELP, VIETQR_HELP, PAYOS_HELP, PAYMENT_PENDING_HELP, PAYMENT_FAILED_HELP,
+        PAYMENT_MISMATCH_HELP, REFUND_HELP, PROFILE_HELP, VISIT_PREPARATION_HELP, CONTACT_HELP
+    }
 
     public String quickReply(QuickAction action) {
+        var faq = ClinicFaqAnswers.action(action.name());
+        if (faq.isPresent()) return faq.get();
         return answer(switch (action) {
             case SPECIALTIES -> "danh sách chuyên khoa";
             case SERVICES -> "bảng giá dịch vụ";
             case BOOKING_HELP -> "cách đặt lịch";
+            default -> throw new IllegalArgumentException("Unknown quick action");
         }).orElseThrow();
     }
 

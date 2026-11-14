@@ -91,10 +91,11 @@ public class VnpayService {
         if (!verify(params)) return "97";
         if (!properties.getTmnCode().equals(params.get("vnp_TmnCode"))) return "97";
         PaymentTransaction snapshot = transactions.findByTxnRef(params.get("vnp_TxnRef")).orElse(null);
-        if (snapshot == null || "VIETQR".equals(snapshot.getProvider())) return "01";
+        if (snapshot == null || (snapshot.getProvider()!=null && !"VNPAY".equals(snapshot.getProvider()))) return "01";
         appointments.lock(snapshot.getPayment().getAppointment().getId());
         PaymentTransaction tx = transactions.findLockedByTxnRef(params.get("vnp_TxnRef")).orElse(null);
-        if (tx == null || "VIETQR".equals(tx.getProvider())) return "01";
+        if (tx == null || (tx.getProvider()!=null && !"VNPAY".equals(tx.getProvider()))) return "01";
+        entityManager.refresh(tx, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         BigDecimal vnpAmount = new BigDecimal(params.getOrDefault("vnp_Amount", "-1")).movePointLeft(2);
         if (vnpAmount.compareTo(tx.getAmount()) != 0) return "04";
         if (tx.getStatus() != EPaymentTransactionStatus.PENDING) return "02";

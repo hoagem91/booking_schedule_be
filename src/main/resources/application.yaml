@@ -35,6 +35,14 @@ jwt:
   valid-duration: 3600
   refreshable-duration: 36000
 payment:
+  payos:
+    enabled: ${PAYOS_ENABLED:true}
+    client-id: ${PAYOS_CLIENT_ID:12c6daed-4169-45aa-b362-4cd4420962da}
+    api-key: ${PAYOS_API_KEY:ed7669ce-cbf9-432a-8ea0-ae8f048478cb}
+    checksum-key: ${PAYOS_CHECKSUM_KEY:abcb5647087b48905dd5151052700037bdbcee74333ec413799cb3bde50869af}
+    return-url: ${PAYOS_RETURN_URL:http://localhost:4200/payment/result?provider=payos}
+    cancel-url: ${PAYOS_CANCEL_URL:http://localhost:4200/payment/result?provider=payos&cancelled=true}
+    expire-minutes: ${PAYOS_EXPIRE_MINUTES:15}
   vnpay:
     tmn-code: ${VNPAY_TMN_CODE:}
     hash-secret: ${VNPAY_HASH_SECRET:}

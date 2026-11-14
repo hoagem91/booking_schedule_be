@@ -63,6 +63,7 @@ public class VietqrService {
     @Transactional(readOnly=true)
     public StatusResponse status(String reference) {
         PaymentTransaction tx=transactions.findByTxnRef(reference).orElseThrow(() -> new AppException(ErrorCode.APPOINTMENT_NOT_FOUND));
+        entityManager.refresh(tx, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         if(!"VIETQR".equals(tx.getProvider())) throw new AppException(ErrorCode.APPOINTMENT_NOT_FOUND);
         appointments.getMine(tx.getPayment().getAppointment().getId());
         return new StatusResponse(tx.getTxnRef(),tx.getStatus(),tx.getAmount(),tx.getPaidAt());
@@ -77,6 +78,7 @@ public class VietqrService {
         // Serialize against appointment cancellation and other payment attempts for this appointment.
         Appointment appointment=appointments.lock(snapshot.getPayment().getAppointment().getId());
         PaymentTransaction tx=transactions.findLockedByTxnRef(request.orderId()).orElseThrow(() -> invalid("UNKNOWN_ORDER"));
+        entityManager.refresh(tx, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         if(!"VIETQR".equals(tx.getProvider()) || !"C".equals(request.transType())
                 || !Objects.equals(tx.getReceivingAccount(),request.bankaccount())
                 || request.amount().compareTo(tx.getAmount())!=0) throw invalid("PAYMENT_MISMATCH");

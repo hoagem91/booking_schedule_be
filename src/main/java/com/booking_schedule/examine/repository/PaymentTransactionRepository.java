@@ -9,8 +9,10 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
-public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, Long> {
+public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<PaymentTransaction> {
     Optional<PaymentTransaction> findByTxnRef(String txnRef);
+    Optional<PaymentTransaction> findFirstByPaymentAppointmentIdAndProviderAndStatusOrderByIdDesc(
+            Long appointmentId, String provider, com.booking_schedule.examine.enums.EPaymentTransactionStatus status);
     boolean existsByTxnRef(String txnRef);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from PaymentTransaction t join fetch t.payment p join fetch p.appointment where t.txnRef = :txnRef")

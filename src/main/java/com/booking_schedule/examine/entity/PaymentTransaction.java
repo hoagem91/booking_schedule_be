@@ -46,6 +46,12 @@ public class PaymentTransaction {
     private String receivingAccount;
     @Column(name="provider_event_id", length = 100)
     private String providerEventId;
+    @Column(name="provider_payment_link_id", length=100)
+    private String providerPaymentLinkId;
+    @Column(name="checkout_url", length=1024)
+    private String checkoutUrl;
+    @Column(name="qr_code", columnDefinition="TEXT")
+    private String qrCode;
     private LocalDateTime expiresAt;
     private LocalDateTime paidAt;
 
