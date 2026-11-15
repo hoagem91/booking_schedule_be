@@ -24,6 +24,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity.authorizeHttpRequests(request -> request
+                .requestMatchers("/api/admin/dashboard", "/api/admin/dashboard/**")
+                .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
                 .requestMatchers("/api/admin/payments", "/api/admin/payments/**")
                 .hasAnyAuthority("SCOPE_ADMIN", "SCOPE_SUPER_ADMIN")
                 .requestMatchers("/api/patient/payments", "/api/patient/payments/**")
