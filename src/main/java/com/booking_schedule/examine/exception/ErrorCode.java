@@ -62,6 +62,7 @@ public enum ErrorCode {
     DOCTOR_HAS_HISTORY(4005, "Cannot hard-delete doctor with existing schedules or appointments", HttpStatus.CONFLICT),
     DOCTOR_ALREADY_INACTIVE(4006, "Doctor is already inactive", HttpStatus.BAD_REQUEST),
 
+    DASHBOARD_INVALID_REQUEST(9301, "Invalid dashboard parameters: date range must be 1-366 days within 1900-9999; page >= 0; size 1-100", HttpStatus.BAD_REQUEST),
     PAYMENT_NOT_FOUND(9201, "Payment not found", HttpStatus.NOT_FOUND),
     PAYMENT_INVALID_REQUEST(9202, "Invalid payment filters", HttpStatus.BAD_REQUEST),
     PAYMENT_PROVIDER_UNSUPPORTED(9203, "Only payOS supports manual synchronization", HttpStatus.CONFLICT),
